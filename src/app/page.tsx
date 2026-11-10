@@ -17,7 +17,6 @@ import {
   ShieldCheck,
   Truck,
   Palette,
-  ExternalLink,
   Star,
   Award
 } from 'lucide-react';
@@ -147,26 +146,15 @@ export default function Storefront() {
             </a>
           </nav>
 
-          {/* Actions & Studio Access */}
+          {/* Actions */}
           <div className="flex items-center space-x-3">
             <button
               onClick={() => openWhatsApp('Hello Vedh Artistry! I would like to explore bespoke handcrafted return gifts.')}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-[#FAF6F0] text-xs font-semibold tracking-wide transition shadow-sm active:scale-95"
+              className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-[#FAF6F0] text-xs font-semibold tracking-wide transition shadow-sm active:scale-95"
             >
               <MessageCircle size={14} className="text-[#F3E3B5]" />
-              <span className="hidden sm:inline">WhatsApp Concierge</span>
-              <span className="sm:hidden">Inquire</span>
+              <span>WhatsApp Concierge</span>
             </button>
-
-            {/* Link to internal Business Studio */}
-            <Link
-              href="/studio"
-              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-[#D9C9B4] text-xs font-medium text-[#541523] bg-white hover:bg-[#F2EBE0] transition"
-              title="Access Internal Tracking Studio"
-            >
-              <span className="hidden sm:inline">Studio Login</span>
-              <ExternalLink size={12} className="text-[#A87E1F]" />
-            </Link>
           </div>
         </div>
       </header>
@@ -694,22 +682,22 @@ export default function Storefront() {
             </ul>
           </div>
 
-          {/* Studio & Contact */}
+          {/* Bespoke Concierge */}
           <div className="space-y-2">
             <div className="font-serif text-sm font-bold text-[#F3E3B5] uppercase tracking-wider">
-              Studio Portal
+              Artisan Concierge
             </div>
-            <p className="text-[#E8DDCF]/70 leading-relaxed">
-              Manage inventory, track workshop production, and generate tax invoices.
+            <p className="text-[#E8DDCF]/70 leading-relaxed font-light">
+              Connect directly with our master craftsmen for bespoke customization, custom wedding tags, or corporate gifting catalogs.
             </p>
             <div className="pt-2">
-              <Link
-                href="/studio"
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-white text-xs font-semibold border border-[#D4AF37]/40 transition"
+              <button
+                onClick={() => openWhatsApp('Hello Vedh Artistry! I would like to consult with an artisan about custom gifting.')}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-[#F3E3B5] text-xs font-semibold border border-[#D4AF37]/40 transition"
               >
-                <span>Open Business Studio</span>
-                <ExternalLink size={12} className="text-[#D4AF37]" />
-              </Link>
+                <MessageCircle size={13} className="text-[#D4AF37]" />
+                <span>Chat on WhatsApp</span>
+              </button>
             </div>
           </div>
         </div>
