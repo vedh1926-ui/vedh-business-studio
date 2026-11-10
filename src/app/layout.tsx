@@ -4,9 +4,23 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'VEDH Business Studio | Artisanal Handicrafts & Operations Hub',
   description: 'Operations, inventory, orders, and branded invoicing for VEDH luxury handicrafts and bespoke return gifts.',
+  manifest: '/manifest.json',
   icons: {
-    icon: '/vedh-logo.jpg',
+    icon: '/icon-192.png',
+    apple: '/apple-icon.png',
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'VEDH Studio',
+  },
+};
+
+export const viewport = {
+  themeColor: '#541523',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
