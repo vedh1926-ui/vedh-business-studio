@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -17,7 +18,8 @@ import {
   History,
   Cloud,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { ActiveTab } from '@/lib/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -85,6 +87,17 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, setIsOpen }: 
                 Artisanal Tracking
               </p>
             </div>
+          </div>
+
+          {/* Quick link to Storefront */}
+          <div className="px-3 pt-3 pb-1">
+            <Link
+              href="/"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-[#F3E3B5] bg-[#3D0E18]/80 hover:bg-[#621829] border border-[#D4AF37]/30 transition group"
+            >
+              <span>← View Storefront</span>
+              <ExternalLink size={12} className="text-[#D4AF37] group-hover:translate-x-0.5 transition" />
+            </Link>
           </div>
 
           {/* Navigation Menu */}
