@@ -21,6 +21,8 @@ export interface Order {
   paymentMode?: string;
   createdAt: string;
   targetDeliveryDate?: string;
+  deliveredOn?: string;
+  deductStock?: boolean;
   notes?: string;
   occasion?: string;
 }
@@ -28,7 +30,8 @@ export interface Order {
 export interface Product {
   id: string;
   name: string;
-  category: string; // Driven by Category master list or collection name
+  category: string; // Driven by Category master list
+  collection?: string; // Driven by Products sheet Collection (e.g. 'Diya & Holder', 'Candle & Tealight')
   price: number;
   estimatedCost: number;
   stock: number;
@@ -47,9 +50,89 @@ export interface InventoryItem {
   stock: number;
   unit: string; // Driven by Unit master list
   reorderLevel: number;
+  avgUnitCost?: number; // Landed cost per unit (₹), synced from purchases or manually set
+  purchaseSource?: string; // Vendor / purchase reference note
   status: 'Healthy' | 'Low' | 'Critical';
   supplier?: string;
   lastAdjustmentReason?: string; // Driven by Adjustment Reason master list
+}
+
+export interface RecipeIngredient {
+  id: string;
+  productId: string;
+  productName: string;
+  materialId: string;
+  materialName: string;
+  qtyPerUnit: number;
+  unit: string;
+  overrideUnitCost?: number;
+  notes?: string;
+}
+
+export interface OrderComputedMetrics {
+  qty: number;
+  unitPrice: number;
+  totalAmount: number;
+  advancePaid: number;
+  balanceDue: number;
+  paymentState: 'Paid' | 'Partial' | 'Unpaid';
+  isOpen: boolean;
+  dueAlert: 'Overdue' | 'Due soon' | '';
+  deductStock: boolean;
+  stockCheck: 'OK' | 'No recipe' | 'Shortage' | '-';
+}
+
+export interface OrderOverviewMetrics {
+  totalOrderLines: number;
+  distinctOrdersCount: number;
+  totalOrderValue: number;
+  totalReceived: number;
+  totalBalanceDue: number;
+  totalUnitsOrdered: number;
+  openOrderLines: number;
+  openUnitsCount: number;
+  openBalanceDue: number;
+  dueSoonCount: number;
+  overdueCount: number;
+  unpaidCount: number;
+  partialCount: number;
+  paidCount: number;
+  missingRecipeOpenCount: number;
+  shortageCount: number;
+}
+
+export interface RecipeIngredientMetrics {
+  countedUnitsOrdered: number;
+  consumedUnitsSoFar: number;
+  openUnitsDemand: number;
+  neededForOrders: number;
+  consumedSoFar: number;
+  neededForOpenOrders: number;
+  stockAvailable: number;
+  freeAfterOrders: number;
+  isShort: boolean;
+  missingStockLink: boolean;
+  avgUnitCost: number | null;
+  lineCost: number | null;
+  isCostKnown: boolean;
+}
+
+export interface ProductEconomics {
+  productId: string;
+  productName: string;
+  collection: string;
+  price: number;
+  hasRecipe: boolean;
+  ingredientCount: number;
+  costedIngredientCount: number;
+  costComplete: boolean;
+  materialCostPerUnit: number;
+  marginPerUnit: number | null;
+  marginPct: number | null;
+  openUnits: number;
+  totalUnitsOrdered: number;
+  totalRevenue: number;
+  hasShortage: boolean;
 }
 
 export interface Expense {
@@ -150,7 +233,7 @@ export interface Payment {
 
 export interface HistoryLog {
   id: string;
-  category: 'All' | 'Product' | 'Order' | 'Expense' | 'Payment' | 'Customer' | 'Master List';
+  category: 'All' | 'Product' | 'Order' | 'Recipe' | 'Inventory' | 'Expense' | 'Payment' | 'Customer' | 'Master List';
   description: string;
   timestamp: string;
 }
@@ -174,6 +257,7 @@ export type ActiveTab =
   | 'dashboard'
   | 'orders'
   | 'products'
+  | 'recipe'
   | 'inventory'
   | 'invoices'
   | 'expenses'

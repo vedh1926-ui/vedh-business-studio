@@ -17,6 +17,7 @@ import {
   Settings,
   History,
   ListChecks,
+  Layers,
   Cloud,
   CheckCircle2,
   AlertCircle,
@@ -30,14 +31,34 @@ interface SidebarProps {
   setActiveTab: (tab: ActiveTab) => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  openOrdersCount?: number;
+  lowStockCount?: number;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, isOpen, setIsOpen }: SidebarProps) {
+export default function Sidebar({
+  activeTab,
+  setActiveTab,
+  isOpen,
+  setIsOpen,
+  openOrdersCount,
+  lowStockCount,
+}: SidebarProps) {
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-    { id: 'orders', label: 'Orders', icon: <ShoppingBag size={18} />, badge: '3' },
+    {
+      id: 'orders',
+      label: 'Orders',
+      icon: <ShoppingBag size={18} />,
+      badge: typeof openOrdersCount === 'number' && openOrdersCount > 0 ? String(openOrdersCount) : undefined,
+    },
     { id: 'products', label: 'Products', icon: <Package size={18} /> },
-    { id: 'inventory', label: 'Inventory', icon: <Boxes size={18} />, badge: 'Alert' },
+    { id: 'recipe', label: 'Recipe', icon: <Layers size={18} /> },
+    {
+      id: 'inventory',
+      label: 'Inventory',
+      icon: <Boxes size={18} />,
+      badge: typeof lowStockCount === 'number' && lowStockCount > 0 ? 'Alert' : undefined,
+    },
     { id: 'invoices', label: 'Invoices', icon: <FileText size={18} /> },
     { id: 'expenses', label: 'Expenses', icon: <Receipt size={18} /> },
     { id: 'customers', label: 'Customers', icon: <Users size={18} /> },

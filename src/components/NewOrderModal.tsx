@@ -9,36 +9,56 @@ interface NewOrderModalProps {
   products: Product[];
   paymentModes?: string[];
   orderStatuses?: string[];
+  initialOrder?: Order | null;
+  nextOrderNumberSuggestion?: string;
   onClose: () => void;
-  onSave: (order: Omit<Order, 'id'>) => void;
+  onSave: (order: Omit<Order, 'id'>, existingId?: string) => void;
 }
 
 export default function NewOrderModal({
   products,
   paymentModes = ['UPI', 'Cash', 'Card', 'Net Banking', 'Cash on Delivery', 'Other'],
   orderStatuses = ['New', 'In Production', 'Ready', 'Delivered', 'Cancelled'],
+  initialOrder = null,
+  nextOrderNumberSuggestion = 'ORD-021',
   onClose,
   onSave,
 }: NewOrderModalProps) {
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [occasion, setOccasion] = useState('');
-  const [targetDate, setTargetDate] = useState('');
-  const [notes, setNotes] = useState('');
-  const [advancePaid, setAdvancePaid] = useState<number>(0);
-  const [paymentMode, setPaymentMode] = useState<string>(paymentModes[0] || 'UPI');
-  const [status, setStatus] = useState<string>(orderStatuses[0] || 'New');
+  const [orderNumber, setOrderNumber] = useState(
+    initialOrder?.orderNumber || nextOrderNumberSuggestion
+  );
+  const [orderDate, setOrderDate] = useState(
+    initialOrder?.createdAt || new Date().toISOString().split('T')[0]
+  );
+  const [customerName, setCustomerName] = useState(initialOrder?.customerName || '');
+  const [customerPhone, setCustomerPhone] = useState(initialOrder?.customerPhone || '');
+  const [occasion, setOccasion] = useState(initialOrder?.occasion || '');
+  const [targetDate, setTargetDate] = useState(initialOrder?.targetDeliveryDate || '');
+  const [deliveredOn, setDeliveredOn] = useState(initialOrder?.deliveredOn || '');
+  const [notes, setNotes] = useState(initialOrder?.notes || '');
+  const [advancePaid, setAdvancePaid] = useState<number>(initialOrder?.advancePaid ?? 0);
+  const [paymentMode, setPaymentMode] = useState<string>(
+    initialOrder?.paymentMode || paymentModes[0] || 'UPI'
+  );
+  const [status, setStatus] = useState<string>(
+    initialOrder?.status || orderStatuses[0] || 'New'
+  );
+  const [deductStock, setDeductStock] = useState<boolean>(
+    initialOrder ? initialOrder.deductStock !== false : true
+  );
 
-  // Line items state
-  const [items, setItems] = useState<OrderItem[]>([
-    {
-      productId: products[0]?.id || '',
-      productName: products[0]?.name || '',
-      quantity: 1,
-      unitPrice: products[0]?.price || 0,
-    },
-  ]);
+  const [items, setItems] = useState<OrderItem[]>(
+    initialOrder?.items?.length
+      ? initialOrder.items
+      : [
+          {
+            productId: products[0]?.id || '',
+            productName: products[0]?.name || '',
+            quantity: 1,
+            unitPrice: products[0]?.price || 0,
+          },
+        ]
+  );
 
   const handleProductChange = (index: number, prodId: string) => {
     const selected = products.find((p) => p.id === prodId);
@@ -56,7 +76,13 @@ export default function NewOrderModal({
 
   const handleQtyChange = (index: number, qty: number) => {
     const next = [...items];
-    next[index].quantity = Math.max(1, qty);
+    next[index] = { ...next[index], quantity: Math.max(1, qty) };
+    setItems(next);
+  };
+
+  const handleUnitPriceChange = (index: number, price: number) => {
+    const next = [...items];
+    next[index] = { ...next[index], unitPrice: Math.max(0, price) };
     setItems(next);
   };
 
@@ -86,35 +112,37 @@ export default function NewOrderModal({
     e.preventDefault();
     if (!customerName.trim() || items.length === 0) return;
 
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    const orderNumber = `#${randomNum}`;
-
-    onSave({
-      orderNumber,
-      customerName,
-      customerPhone,
-      customerEmail,
-      items,
-      totalAmount,
-      advancePaid,
-      balanceDue,
-      status,
-      paymentMode,
-      createdAt: new Date().toISOString().split('T')[0],
-      targetDeliveryDate: targetDate,
-      notes,
-      occasion,
-    });
+    onSave(
+      {
+        orderNumber: orderNumber.trim() || nextOrderNumberSuggestion,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim() || undefined,
+        customerEmail: initialOrder?.customerEmail,
+        items,
+        totalAmount,
+        advancePaid,
+        balanceDue,
+        status,
+        paymentMode,
+        createdAt: orderDate,
+        targetDeliveryDate: targetDate || undefined,
+        deliveredOn: deliveredOn || undefined,
+        deductStock,
+        notes: notes.trim() || undefined,
+        occasion: occasion.trim() || undefined,
+      },
+      initialOrder?.id
+    );
 
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-xl w-full border border-[#E8DDCF] shadow-2xl overflow-hidden my-8">
+      <div className="bg-white rounded-2xl max-w-2xl w-full border border-[#E8DDCF] shadow-2xl overflow-hidden my-8">
         <div className="bg-[#FAF5EE] border-b border-[#E8DDCF] px-6 py-4 flex items-center justify-between">
           <h3 className="font-serif text-lg font-bold text-[#2C181B]">
-            Create New Order
+            {initialOrder ? `Edit Order ${initialOrder.orderNumber}` : 'Create New Order'}
           </h3>
           <button
             onClick={onClose}
@@ -126,6 +154,40 @@ export default function NewOrderModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+          {/* Order # & Date */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">Order No. *</label>
+              <input
+                type="text"
+                required
+                value={orderNumber}
+                onChange={(e) => setOrderNumber(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] font-mono focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              />
+            </div>
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">Order Date</label>
+              <input
+                type="date"
+                value={orderDate}
+                onChange={(e) => setOrderDate(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              />
+            </div>
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">Deduct Stock?</label>
+              <select
+                value={deductStock ? 'Yes' : 'No'}
+                onChange={(e) => setDeductStock(e.target.value === 'Yes')}
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                <option value="Yes">Yes (Track raw material need)</option>
+                <option value="No">No (Skip deduction)</option>
+              </select>
+            </div>
+          </div>
+
           {/* Customer info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -148,7 +210,7 @@ export default function NewOrderModal({
               </label>
               <input
                 type="text"
-                placeholder="+91 98201..."
+                placeholder="9848481203"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
@@ -156,28 +218,38 @@ export default function NewOrderModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[#423A3A] font-semibold mb-1">
-                Occasion / Note
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Diwali Return Gifts, Wedding Hamper"
-                value={occasion}
-                onChange={(e) => setOccasion(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[#423A3A] font-semibold mb-1">
-                Target Delivery Date
+                Delivery Due Date
               </label>
               <input
                 type="date"
                 value={targetDate}
                 onChange={(e) => setTargetDate(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              />
+            </div>
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Delivered On
+              </label>
+              <input
+                type="date"
+                value={deliveredOn}
+                onChange={(e) => setDeliveredOn(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              />
+            </div>
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Occasion / Tag
+              </label>
+              <input
+                type="text"
+                placeholder="Diwali, Housewarming..."
+                value={occasion}
+                onChange={(e) => setOccasion(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
               />
             </div>
@@ -201,13 +273,16 @@ export default function NewOrderModal({
 
             <div className="space-y-2 border border-[#E8DDCF] rounded-xl p-3 bg-[#FCFAF7]">
               {items.map((item, index) => (
-                <div key={index} className="flex items-center space-x-2">
+                <div key={index} className="grid grid-cols-12 items-center gap-2">
                   <select
                     value={item.productId}
                     onChange={(e) => handleProductChange(index, e.target.value)}
                     aria-label={`Select product for item ${index + 1}`}
-                    className="flex-1 px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-xs"
+                    className="col-span-6 px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-xs"
                   >
+                    {!products.some((p) => p.id === item.productId) && (
+                      <option value={item.productId}>{item.productName}</option>
+                    )}
                     {products.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} ({formatINR(p.price)})
@@ -220,34 +295,57 @@ export default function NewOrderModal({
                     min="1"
                     value={item.quantity}
                     onChange={(e) => handleQtyChange(index, parseInt(e.target.value) || 1)}
-                    className="w-16 px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] text-center text-xs"
+                    className="col-span-2 px-2 py-1.5 border rounded-lg border-[#D9C9B4] text-center text-xs"
                     aria-label={`Quantity for item ${index + 1}`}
+                    title="Qty"
                   />
 
-                  <div className="w-20 text-right font-serif font-semibold text-[#2C181B]">
-                    {formatINR(item.quantity * item.unitPrice)}
-                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={item.unitPrice}
+                    onChange={(e) => handleUnitPriceChange(index, parseFloat(e.target.value) || 0)}
+                    className="col-span-2 px-2 py-1.5 border rounded-lg border-[#D9C9B4] text-right text-xs"
+                    aria-label={`Unit price for item ${index + 1}`}
+                    title="Unit price ₹"
+                  />
 
-                  {items.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveItem(index)}
-                      className="p-1 text-stone-400 hover:text-rose-600"
-                      aria-label={`Remove item ${index + 1}`}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
+                  <div className="col-span-2 flex items-center justify-end gap-1 font-serif font-semibold text-[#2C181B]">
+                    <span>{formatINR(item.quantity * item.unitPrice)}</span>
+                    {items.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(index)}
+                        className="p-1 text-stone-400 hover:text-rose-600"
+                        aria-label={`Remove item ${index + 1}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-[#423A3A] font-semibold mb-1">
+              Customisation / Address Notes
+            </label>
+            <input
+              type="text"
+              placeholder="Delivery address or colour preference..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+            />
           </div>
 
           {/* Status & Payment breakdown */}
           <div className="pt-2 border-t border-[#F2EBE0] grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[#423A3A] font-semibold mb-1">
-                Advance Paid (₹)
+                Amount Received (₹)
               </label>
               <input
                 type="number"
@@ -316,7 +414,7 @@ export default function NewOrderModal({
               type="submit"
               className="px-5 py-2 bg-[#541523] text-white rounded-lg font-semibold hover:bg-[#6E1C30]"
             >
-              Record Order
+              {initialOrder ? 'Save Changes' : 'Record Order'}
             </button>
           </div>
         </form>

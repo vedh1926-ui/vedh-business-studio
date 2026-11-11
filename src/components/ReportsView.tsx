@@ -1,13 +1,24 @@
 'use client';
 
 import React from 'react';
-import { Order, Product, Expense, Payment } from '@/lib/types';
+import {
+  Expense,
+  InventoryItem,
+  Order,
+  Payment,
+  Product,
+  RecipeIngredient,
+} from '@/lib/types';
 import { formatINR } from '@/lib/utils';
 import {
   computePurchaseOverview,
   computePlatformStats,
   computeCategorySpend,
 } from '@/lib/purchaseFormulas';
+import {
+  computeOrderOverview,
+  computeRecipeAndProductSnapshot,
+} from '@/lib/oprFormulas';
 import { BarChart3, TrendingUp, PieChart, Sparkles } from 'lucide-react';
 
 interface ReportsViewProps {
@@ -15,6 +26,8 @@ interface ReportsViewProps {
   products: Product[];
   expenses: Expense[];
   payments: Payment[];
+  recipes?: RecipeIngredient[];
+  inventory?: InventoryItem[];
   platforms?: string[];
 }
 
@@ -23,16 +36,26 @@ export default function ReportsView({
   products,
   expenses,
   payments,
+  recipes = [],
+  inventory = [],
   platforms = [],
 }: ReportsViewProps) {
   const purchaseOverview = computePurchaseOverview(expenses);
   const platformStats = computePlatformStats(expenses, platforms);
   const categorySpend = computeCategorySpend(expenses);
+  const snapshot = computeRecipeAndProductSnapshot(products, recipes, orders, inventory);
+  const orderOverview = computeOrderOverview(orders, snapshot.productEconomicsByName);
 
-  const totalOrdersVal = orders.reduce((acc, curr) => acc + curr.totalAmount, 0);
+  const totalOrdersVal = orderOverview.totalOrderValue;
   const totalPaymentsRec = payments.reduce((acc, curr) => acc + curr.amount, 0);
   const totalExpenses = purchaseOverview.totalSpend;
   const netCashPosition = totalPaymentsRec - totalExpenses;
+
+  const rankedProducts = [...products].sort((a, b) => {
+    const revA = snapshot.productEconomicsById[a.id]?.totalRevenue ?? 0;
+    const revB = snapshot.productEconomicsById[b.id]?.totalRevenue ?? 0;
+    return revB - revA;
+  });
 
   return (
     <div className="space-y-8 animate-fadeIn">
@@ -174,21 +197,24 @@ export default function ReportsView({
         </p>
 
         <div className="space-y-4 text-xs divide-y divide-[#F2EBE0]">
-          {products.map((prod) => {
-            // Calculate revenue from orders for this product
-            const revenue = orders.reduce((acc, order) => {
-              const item = order.items.find((i) => i.productId === prod.id || i.productName === prod.name);
-              return acc + (item ? item.quantity * item.unitPrice : 0);
-            }, 0);
-
+          {rankedProducts.map((prod) => {
+            const econ = snapshot.productEconomicsById[prod.id];
             return (
-              <div key={prod.id} className="pt-3 first:pt-0 flex items-center justify-between">
+              <div key={prod.id} className="pt-3 first:pt-0 flex items-center justify-between gap-4">
                 <div>
                   <div className="font-semibold text-[#2C181B]">{prod.name}</div>
-                  <div className="text-[11px] text-[#7A6E6E]">Catalog price: {formatINR(prod.price)}</div>
+                  <div className="text-[11px] text-[#7A6E6E]">
+                    {econ?.collection || prod.collection || prod.category} • Catalog {formatINR(prod.price)} •{' '}
+                    <span className="font-medium text-[#2C181B]">{econ?.totalUnitsOrdered ?? 0} units ordered</span>
+                    {econ?.hasRecipe && (
+                      <span className="text-emerald-700 ml-1">
+                        • Mat cost {formatINR(econ.materialCostPerUnit, 2)} ({econ.marginPct ?? 0}% margin)
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="font-serif font-bold text-[#541523] text-sm">
-                  {formatINR(revenue)}
+                <div className="font-serif font-bold text-[#541523] text-sm shrink-0">
+                  {formatINR(econ?.totalRevenue ?? 0)}
                 </div>
               </div>
             );

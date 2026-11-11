@@ -8,7 +8,7 @@ interface HeaderProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   onOpenSidebar: () => void;
-  onQuickAdd: (type: 'order' | 'product' | 'stock' | 'expense') => void;
+  onQuickAdd: (type: 'order' | 'product' | 'stock' | 'expense' | 'recipe') => void;
 }
 
 export default function Header({
@@ -23,6 +23,7 @@ export default function Header({
     dashboard: 'DASHBOARD',
     orders: 'ORDERS',
     products: 'PRODUCTS',
+    recipe: 'RECIPE & COSTING',
     inventory: 'INVENTORY',
     invoices: 'INVOICES & BILLING',
     expenses: 'EXPENSES',
@@ -56,6 +57,8 @@ export default function Header({
               ? 'Invoices & Billing'
               : activeTab === 'master-lists'
               ? 'Master Lists'
+              : activeTab === 'recipe'
+              ? 'Recipe & Costing'
               : activeTab}
           </h1>
         </div>
@@ -109,6 +112,16 @@ export default function Header({
                 >
                   <span className="w-2 h-2 rounded-full bg-[#C69C31]"></span>
                   <span>New Product</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onQuickAdd('recipe');
+                    setShowQuickMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-2 hover:bg-[#F9F5EE] text-[#2C181B] flex items-center space-x-2"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#541523]"></span>
+                  <span>Build Product Recipe</span>
                 </button>
                 <button
                   onClick={() => {

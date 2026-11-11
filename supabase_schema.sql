@@ -10,10 +10,12 @@ create extension if not exists "uuid-ossp";
 create table if not exists public.products (
     id uuid default uuid_generate_v4() primary key,
     name text not null,
-    category text not null check (category in ('Candles', 'Resin Coasters', 'Embroidery', 'Gift Hampers', 'Custom')),
+    category text not null,
+    collection text,
     price numeric(12, 2) not null check (price >= 0),
     estimated_cost numeric(12, 2) default 0 check (estimated_cost >= 0),
     stock integer default 0 check (stock >= 0),
+    unit text default 'set',
     reorder_level integer default 5 check (reorder_level >= 0),
     image_url text,
     description text,
@@ -26,10 +28,14 @@ create table if not exists public.inventory (
     id uuid default uuid_generate_v4() primary key,
     name text not null,
     type text not null check (type in ('Finished Good', 'Raw Material', 'Packaging')),
+    category text,
     stock numeric(12, 2) default 0 check (stock >= 0),
-    unit text not null default 'units',
+    unit text not null default 'pcs',
     reorder_level numeric(12, 2) default 5 check (reorder_level >= 0),
+    avg_unit_cost numeric(12, 4),
+    purchase_source text,
     supplier_name text,
+    last_adjustment_reason text,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
     updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -60,16 +66,19 @@ create table if not exists public.suppliers (
 -- 5. ORDERS TABLE
 create table if not exists public.orders (
     id uuid default uuid_generate_v4() primary key,
-    order_number text unique not null,
+    order_number text not null,
     customer_id uuid references public.customers(id) on delete set null,
     customer_name text not null,
     customer_phone text,
     customer_email text,
-    status text not null default 'Inquiry' check (status in ('Inquiry', 'Production', 'Ready', 'Dispatched', 'Delivered', 'Cancelled')),
+    status text not null default 'New',
     total_amount numeric(12, 2) not null check (total_amount >= 0),
     advance_paid numeric(12, 2) default 0 check (advance_paid >= 0),
     balance_due numeric(12, 2) default 0 check (balance_due >= 0),
+    order_date date default current_date,
     target_delivery_date date,
+    delivered_on date,
+    deduct_stock boolean default true,
     occasion text,
     notes text,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
@@ -129,7 +138,7 @@ create table if not exists public.expenses (
 -- 9. AUDIT HISTORY LOG TABLE
 create table if not exists public.audit_logs (
     id uuid default uuid_generate_v4() primary key,
-    category text not null check (category in ('All', 'Product', 'Order', 'Expense', 'Payment', 'Customer', 'Master List')),
+    category text not null check (category in ('All', 'Product', 'Order', 'Recipe', 'Inventory', 'Expense', 'Payment', 'Customer', 'Master List')),
     description text not null,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -145,6 +154,20 @@ create table if not exists public.master_lists (
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- 11. RECIPES (BILL OF MATERIALS) TABLE
+create table if not exists public.recipes (
+    id uuid default uuid_generate_v4() primary key,
+    product_id uuid references public.products(id) on delete cascade,
+    product_name text not null,
+    material_id uuid references public.inventory(id) on delete set null,
+    material_name text not null,
+    qty_per_unit numeric(12, 4) not null check (qty_per_unit >= 0),
+    unit text not null default 'pcs',
+    override_unit_cost numeric(12, 4),
+    notes text,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
 -- ROW LEVEL SECURITY (RLS) POLICIES
 alter table public.products enable row level security;
 alter table public.inventory enable row level security;
@@ -156,6 +179,7 @@ alter table public.payments enable row level security;
 alter table public.expenses enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.master_lists enable row level security;
+alter table public.recipes enable row level security;
 
 -- Default open access for authenticated studio users:
 create policy "Allow authenticated full access to products" on public.products for all using (auth.role() = 'authenticated');
@@ -167,3 +191,4 @@ create policy "Allow authenticated full access to expenses" on public.expenses f
 create policy "Allow authenticated full access to suppliers" on public.suppliers for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to audit_logs" on public.audit_logs for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to master_lists" on public.master_lists for all using (auth.role() = 'authenticated');
+create policy "Allow authenticated full access to recipes" on public.recipes for all using (auth.role() = 'authenticated');

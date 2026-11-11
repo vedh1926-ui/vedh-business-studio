@@ -6,40 +6,72 @@ import { X } from 'lucide-react';
 
 interface NewProductModalProps {
   categories?: string[];
+  collections?: string[];
   units?: string[];
+  initialProduct?: Product | null;
   onClose: () => void;
-  onSave: (product: Omit<Product, 'id' | 'status'>) => void;
+  onSave: (product: Omit<Product, 'id' | 'status'>, existingId?: string) => void;
 }
 
 export default function NewProductModal({
-  categories = ['Wax / Candles', 'Resin Supplies', 'Fabric', 'Packaging', 'Art Supplies', 'Other'],
-  units = ['pcs', 'set', 'pack', 'g', 'kg', 'ml', 'm', 'roll', 'inch', 'cm'],
+  categories = ['Diyas', 'Candles', 'Home Decor', 'Festive Hampers', 'Wax / Candles', 'Packaging', 'Other'],
+  collections = [
+    'Lotus Petals Diya',
+    'Zari Bloom',
+    'Shells Two Layers',
+    'Pearls and Flower Diya',
+    'Fabric Theme Diya',
+    'Hand-painted Terracotta Diya',
+    'Diwali Hamper',
+    'GLASS',
+    'Pooja & Urli',
+    'Custom Assorted',
+  ],
+  units = ['set', 'pcs', 'pack', 'g', 'kg', 'ml', 'm', 'roll'],
+  initialProduct = null,
   onClose,
   onSave,
 }: NewProductModalProps) {
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState<Product['category']>(categories[0] || 'Wax / Candles');
-  const [unit, setUnit] = useState<string>(units[0] || 'pcs');
-  const [price, setPrice] = useState('');
-  const [estimatedCost, setEstimatedCost] = useState('');
-  const [stock, setStock] = useState('10');
-  const [reorderLevel, setReorderLevel] = useState('5');
-  const [description, setDescription] = useState('');
+  const [name, setName] = useState(initialProduct?.name || '');
+  const [collection, setCollection] = useState(
+    initialProduct?.collection || collections[0] || 'Lotus Petals Diya'
+  );
+  const [category, setCategory] = useState<Product['category']>(
+    initialProduct?.category || categories[0] || 'Diyas'
+  );
+  const [unit, setUnit] = useState<string>(initialProduct?.unit || units[0] || 'set');
+  const [price, setPrice] = useState(
+    initialProduct ? String(initialProduct.price) : ''
+  );
+  const [estimatedCost, setEstimatedCost] = useState(
+    initialProduct ? String(initialProduct.estimatedCost || '') : ''
+  );
+  const [stock, setStock] = useState(
+    initialProduct ? String(initialProduct.stock) : '0'
+  );
+  const [reorderLevel, setReorderLevel] = useState(
+    initialProduct ? String(initialProduct.reorderLevel) : '5'
+  );
+  const [description, setDescription] = useState(initialProduct?.description || '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    onSave({
-      name,
-      category,
-      unit,
-      price: parseFloat(price) || 0,
-      estimatedCost: parseFloat(estimatedCost) || 0,
-      stock: parseInt(stock) || 0,
-      reorderLevel: parseInt(reorderLevel) || 5,
-      description,
-    });
+    onSave(
+      {
+        name: name.trim(),
+        category,
+        collection: collection.trim() || category,
+        unit,
+        price: parseFloat(price) || 0,
+        estimatedCost: parseFloat(estimatedCost) || 0,
+        stock: parseInt(stock, 10) || 0,
+        reorderLevel: parseInt(reorderLevel, 10) || 5,
+        description: description.trim() || undefined,
+      },
+      initialProduct?.id
+    );
 
     onClose();
   };
@@ -49,7 +81,7 @@ export default function NewProductModal({
       <div className="bg-white rounded-2xl max-w-md w-full border border-[#E8DDCF] shadow-2xl overflow-hidden">
         <div className="bg-[#FAF5EE] border-b border-[#E8DDCF] px-6 py-4 flex items-center justify-between">
           <h3 className="font-serif text-lg font-bold text-[#2C181B]">
-            Add New Product / Design
+            {initialProduct ? 'Edit Product / Design' : 'Add New Product / Design'}
           </h3>
           <button
             onClick={onClose}
@@ -63,12 +95,12 @@ export default function NewProductModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
           <div>
             <label className="block text-[#423A3A] font-semibold mb-1">
-              Product Title / Piece Name *
+              Product Title / Model *
             </label>
             <input
               type="text"
               required
-              placeholder="e.g. Scented Rose &amp; Soy Candle Bowl"
+              placeholder="e.g. Lotus Petals Diya (Set of 2) EMERALD"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
@@ -76,6 +108,24 @@ export default function NewProductModal({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Collection
+              </label>
+              <input
+                list="vedh-collection-options"
+                value={collection}
+                onChange={(e) => setCollection(e.target.value)}
+                placeholder="e.g. Zari Bloom"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              />
+              <datalist id="vedh-collection-options">
+                {collections.map((col) => (
+                  <option key={col} value={col} />
+                ))}
+              </datalist>
+            </div>
+
             <div>
               <label className="block text-[#423A3A] font-semibold mb-1">
                 Category
@@ -86,12 +136,28 @@ export default function NewProductModal({
                 aria-label="Product category"
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
               >
-                {categories.map((cat) => (
+                {(categories.includes(category) ? categories : [category, ...categories]).map((cat) => (
                   <option key={cat} value={cat}>
                     {cat}
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Selling Price (₹) *
+              </label>
+              <input
+                type="number"
+                required
+                placeholder="300"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              />
             </div>
 
             <div>
@@ -111,30 +177,14 @@ export default function NewProductModal({
                 ))}
               </select>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[#423A3A] font-semibold mb-1">
-                Selling Price (₹) *
-              </label>
-              <input
-                type="number"
-                required
-                placeholder="1499"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-              />
-            </div>
 
             <div>
               <label className="block text-[#423A3A] font-semibold mb-1">
-                Material Cost (₹)
+                Est. Cost (₹)
               </label>
               <input
                 type="number"
-                placeholder="650"
+                placeholder="Auto from Recipe"
                 value={estimatedCost}
                 onChange={(e) => setEstimatedCost(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
@@ -145,7 +195,7 @@ export default function NewProductModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[#423A3A] font-semibold mb-1">
-                Initial Stock Count
+                Finished Stock Count
               </label>
               <input
                 type="number"
@@ -170,7 +220,7 @@ export default function NewProductModal({
 
           <div>
             <label className="block text-[#423A3A] font-semibold mb-1">
-              Short Description / Craft Notes
+              Craft / Customisation Notes
             </label>
             <textarea
               rows={2}
@@ -193,7 +243,7 @@ export default function NewProductModal({
               type="submit"
               className="px-5 py-2 bg-[#541523] text-white rounded-lg font-semibold hover:bg-[#6E1C30]"
             >
-              Save Product
+              {initialProduct ? 'Update Product' : 'Save Product'}
             </button>
           </div>
         </form>

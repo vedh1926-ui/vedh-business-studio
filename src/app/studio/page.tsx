@@ -6,6 +6,7 @@ import Header from '@/components/Header';
 import DashboardView from '@/components/DashboardView';
 import OrdersView from '@/components/OrdersView';
 import ProductsView from '@/components/ProductsView';
+import RecipeView from '@/components/RecipeView';
 import InventoryView from '@/components/InventoryView';
 import InvoicesView from '@/components/InvoicesView';
 import ExpensesView from '@/components/ExpensesView';
@@ -35,12 +36,14 @@ import {
   HistoryLog,
   OrderStatus,
   MasterListGroup,
+  RecipeIngredient,
 } from '@/lib/types';
 
 import {
   initialProducts,
   initialOrders,
   initialInventory,
+  initialRecipes,
   initialCustomers,
   initialSuppliers,
   initialExpenses,
@@ -48,6 +51,12 @@ import {
   initialHistory,
   initialMasterLists,
 } from '@/lib/mockData';
+import {
+  buildCustomersFromOrders,
+  isOrderOpen,
+  normalizeNameKey,
+} from '@/lib/oprFormulas';
+import { round2 } from '@/lib/utils';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -57,6 +66,7 @@ export default function Home() {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
+  const [recipes, setRecipes] = useState<RecipeIngredient[]>(initialRecipes);
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
@@ -64,10 +74,13 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryLog[]>(initialHistory);
   const [masterLists, setMasterLists] = useState<MasterListGroup[]>(initialMasterLists);
 
-  // Modal States
+  // Selection & Modal States
+  const [selectedRecipeProductName, setSelectedRecipeProductName] = useState<string | null>(null);
   const [selectedOrderForInvoice, setSelectedOrderForInvoice] = useState<Order | null>(null);
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isNewProductOpen, setIsNewProductOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isNewStockOpen, setIsNewStockOpen] = useState(false);
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -75,14 +88,46 @@ export default function Home() {
   // Hydrate from localStorage on client mount if available
   useEffect(() => {
     try {
-      const savedOrders = localStorage.getItem('vedh_orders');
-      if (savedOrders) setOrders(JSON.parse(savedOrders));
+      // Upgrade Orders / Products / Recipes / Inventory once to the audited workbook v3.0_sheet
+      const oprVer = localStorage.getItem('vedh_opr_version');
+      if (oprVer === '3.0_sheet') {
+        const savedOrders = localStorage.getItem('vedh_orders');
+        const parsedOrders: Order[] = savedOrders ? JSON.parse(savedOrders) : initialOrders;
+        setOrders(parsedOrders);
 
-      const savedProducts = localStorage.getItem('vedh_products');
-      if (savedProducts) setProducts(JSON.parse(savedProducts));
+        const savedProducts = localStorage.getItem('vedh_products');
+        if (savedProducts) setProducts(JSON.parse(savedProducts));
 
-      const savedInventory = localStorage.getItem('vedh_inventory');
-      if (savedInventory) setInventory(JSON.parse(savedInventory));
+        const savedInventory = localStorage.getItem('vedh_inventory');
+        if (savedInventory) setInventory(JSON.parse(savedInventory));
+
+        const savedRecipes = localStorage.getItem('vedh_recipes');
+        if (savedRecipes) setRecipes(JSON.parse(savedRecipes));
+
+        const savedCustomers = localStorage.getItem('vedh_customers');
+        if (savedCustomers) {
+          setCustomers(JSON.parse(savedCustomers));
+        } else {
+          setCustomers(buildCustomersFromOrders(parsedOrders));
+        }
+
+        const savedPayments = localStorage.getItem('vedh_payments');
+        if (savedPayments) setPayments(JSON.parse(savedPayments));
+      } else {
+        localStorage.setItem('vedh_orders', JSON.stringify(initialOrders));
+        localStorage.setItem('vedh_products', JSON.stringify(initialProducts));
+        localStorage.setItem('vedh_inventory', JSON.stringify(initialInventory));
+        localStorage.setItem('vedh_recipes', JSON.stringify(initialRecipes));
+        localStorage.setItem('vedh_customers', JSON.stringify(initialCustomers));
+        localStorage.setItem('vedh_payments', JSON.stringify(initialPayments));
+        localStorage.setItem('vedh_opr_version', '3.0_sheet');
+        setOrders(initialOrders);
+        setProducts(initialProducts);
+        setInventory(initialInventory);
+        setRecipes(initialRecipes);
+        setCustomers(initialCustomers);
+        setPayments(initialPayments);
+      }
 
       // Upgrade placeholder expenses/suppliers once to the audited 131-row Purchase Sheet
       const sheetVer = localStorage.getItem('vedh_expenses_version');
@@ -101,9 +146,6 @@ export default function Home() {
       if (savedSuppliers && sheetVer === '2.0_sheet') {
         setSuppliers(JSON.parse(savedSuppliers));
       }
-
-      const savedPayments = localStorage.getItem('vedh_payments');
-      if (savedPayments) setPayments(JSON.parse(savedPayments));
 
       const savedMasterLists = localStorage.getItem('vedh_master_lists');
       if (savedMasterLists) {
@@ -148,45 +190,52 @@ export default function Home() {
   };
 
   // Order Handlers
-  const handleSaveOrder = (newOrderData: Omit<Order, 'id'>) => {
+  const syncCustomersFromOrdersList = (nextOrders: Order[]) => {
+    const nextCustomers = buildCustomersFromOrders(nextOrders, customers);
+    setCustomers(nextCustomers);
+    persist('vedh_customers', nextCustomers);
+  };
+
+  const handleSaveOrder = (orderData: Omit<Order, 'id'>, existingId?: string) => {
+    if (existingId) {
+      const prev = orders.find((o) => o.id === existingId);
+      const updated = orders.map((o) =>
+        o.id === existingId ? { ...orderData, id: existingId } : o
+      );
+      setOrders(updated);
+      persist('vedh_orders', updated);
+      syncCustomersFromOrdersList(updated);
+
+      if (prev && orderData.advancePaid > prev.advancePaid) {
+        const delta = round2(orderData.advancePaid - prev.advancePaid);
+        const newPay: Payment = {
+          id: `pay-${Date.now()}`,
+          orderNumber: orderData.orderNumber,
+          customerName: orderData.customerName,
+          amount: delta,
+          date: new Date().toISOString().split('T')[0],
+          method: orderData.paymentMode || 'UPI',
+          status: 'Received',
+        };
+        setPayments((p) => {
+          const next = [newPay, ...p];
+          persist('vedh_payments', next);
+          return next;
+        });
+      }
+      addLog('Order', `Order ${orderData.orderNumber} (${orderData.customerName}) updated`);
+      return;
+    }
+
     const newOrder: Order = {
-      ...newOrderData,
+      ...orderData,
       id: `ord-${Date.now()}`,
     };
     const updated = [newOrder, ...orders];
     setOrders(updated);
     persist('vedh_orders', updated);
+    syncCustomersFromOrdersList(updated);
 
-    // Also register or update customer record
-    const existingCust = customers.find((c) => c.name.toLowerCase() === newOrder.customerName.toLowerCase());
-    if (existingCust) {
-      setCustomers(customers.map((c) =>
-        c.id === existingCust.id
-          ? {
-              ...c,
-              totalOrders: c.totalOrders + 1,
-              totalSpent: c.totalSpent + newOrder.totalAmount,
-              lastOrderDate: newOrder.createdAt,
-            }
-          : c
-      ));
-    } else {
-      setCustomers([
-        ...customers,
-        {
-          id: `cust-${Date.now()}`,
-          name: newOrder.customerName,
-          phone: newOrder.customerPhone || '',
-          email: newOrder.customerEmail,
-          totalOrders: 1,
-          totalSpent: newOrder.totalAmount,
-          type: 'Individual',
-          lastOrderDate: newOrder.createdAt,
-        },
-      ]);
-    }
-
-    // If advance paid, record payment
     if (newOrder.advancePaid > 0) {
       const newPay: Payment = {
         id: `pay-${Date.now()}`,
@@ -212,13 +261,23 @@ export default function Home() {
     const updated = orders.filter((o) => o.id !== id);
     setOrders(updated);
     persist('vedh_orders', updated);
+    syncCustomersFromOrdersList(updated);
     if (toDelete) {
-      addLog('Order', `Order ${toDelete.orderNumber} deleted`);
+      addLog('Order', `Order ${toDelete.orderNumber} (${toDelete.customerName}) deleted`);
     }
   };
 
   const handleUpdateOrderStatus = (id: string, status: OrderStatus) => {
-    const updated = orders.map((o) => (o.id === id ? { ...o, status } : o));
+    const today = new Date().toISOString().split('T')[0];
+    const updated = orders.map((o) =>
+      o.id === id
+        ? {
+            ...o,
+            status,
+            deliveredOn: status === 'Delivered' && !o.deliveredOn ? today : o.deliveredOn,
+          }
+        : o
+    );
     setOrders(updated);
     persist('vedh_orders', updated);
     const target = orders.find((o) => o.id === id);
@@ -227,10 +286,79 @@ export default function Home() {
     }
   };
 
+  const handleToggleDeductStock = (id: string) => {
+    const target = orders.find((o) => o.id === id);
+    if (!target) return;
+    const nextDeduct = !(target.deductStock !== false);
+    const updated = orders.map((o) => (o.id === id ? { ...o, deductStock: nextDeduct } : o));
+    setOrders(updated);
+    persist('vedh_orders', updated);
+    addLog(
+      'Order',
+      `Order ${target.orderNumber} stock deduction set to ${nextDeduct ? 'Yes' : 'No'}`
+    );
+  };
+
+  const handleMarkOrderPaid = (id: string) => {
+    const target = orders.find((o) => o.id === id);
+    if (!target) return;
+    const total =
+      target.items.length > 0
+        ? round2(target.items.reduce((s, it) => s + it.quantity * it.unitPrice, 0))
+        : round2(target.totalAmount);
+    const remaining = round2(total - target.advancePaid);
+    if (remaining <= 0) return;
+
+    const updated = orders.map((o) =>
+      o.id === id ? { ...o, advancePaid: total, balanceDue: 0 } : o
+    );
+    setOrders(updated);
+    persist('vedh_orders', updated);
+
+    const newPay: Payment = {
+      id: `pay-${Date.now()}`,
+      orderNumber: target.orderNumber,
+      customerName: target.customerName,
+      amount: remaining,
+      date: new Date().toISOString().split('T')[0],
+      method: target.paymentMode || 'UPI',
+      status: 'Received',
+    };
+    setPayments((prev) => {
+      const nextPayments = [newPay, ...prev];
+      persist('vedh_payments', nextPayments);
+      return nextPayments;
+    });
+    addLog('Payment', `Marked ₹${remaining} balance paid for ${target.orderNumber} (${target.customerName})`);
+  };
+
   // Product Handlers
-  const handleSaveProduct = (prodData: Omit<Product, 'id' | 'status'>) => {
+  const handleSaveProduct = (prodData: Omit<Product, 'id' | 'status'>, existingId?: string) => {
     const status: Product['status'] =
       prodData.stock <= 0 ? 'Out of Stock' : prodData.stock <= prodData.reorderLevel ? 'Low' : 'Healthy';
+
+    if (existingId) {
+      const prevProd = products.find((p) => p.id === existingId);
+      const updated = products.map((p) =>
+        p.id === existingId ? { ...prodData, id: existingId, status } : p
+      );
+      setProducts(updated);
+      persist('vedh_products', updated);
+
+      if (prevProd && prevProd.name !== prodData.name) {
+        const nextRecipes = recipes.map((r) =>
+          r.productId === existingId || normalizeNameKey(r.productName) === normalizeNameKey(prevProd.name)
+            ? { ...r, productName: prodData.name }
+            : r
+        );
+        setRecipes(nextRecipes);
+        persist('vedh_recipes', nextRecipes);
+      }
+
+      addLog('Product', `Product updated: ${prodData.name} (₹${prodData.price})`);
+      return;
+    }
+
     const newProduct: Product = {
       ...prodData,
       id: `prod-${Date.now()}`,
@@ -247,7 +375,7 @@ export default function Home() {
       type: 'Finished Good',
       category: newProduct.category,
       stock: newProduct.stock,
-      unit: newProduct.unit || 'pcs',
+      unit: newProduct.unit || 'set',
       reorderLevel: newProduct.reorderLevel,
       status: status === 'Out of Stock' ? 'Critical' : status,
     };
@@ -268,6 +396,162 @@ export default function Home() {
     if (target) {
       addLog('Product', `Product removed: ${target.name}`);
     }
+  };
+
+  // Recipe Handlers
+  const handleAddRecipeIngredient = (payload: {
+    productId: string;
+    productName: string;
+    materialId: string;
+    materialName: string;
+    qtyPerUnit: number;
+    unit: string;
+    createNewMaterial?: {
+      name: string;
+      type: 'Raw Material' | 'Packaging';
+      unit: string;
+      stock: number;
+      avgUnitCost?: number;
+    };
+  }) => {
+    let resolvedMatId = payload.materialId;
+    let resolvedMatName = payload.materialName;
+    let resolvedUnit = payload.unit;
+
+    if (payload.createNewMaterial) {
+      const existing = inventory.find(
+        (i) => normalizeNameKey(i.name) === normalizeNameKey(payload.createNewMaterial!.name)
+      );
+      if (existing) {
+        resolvedMatId = existing.id;
+        resolvedMatName = existing.name;
+        resolvedUnit = existing.unit;
+      } else {
+        const nm = payload.createNewMaterial;
+        const status: InventoryItem['status'] =
+          nm.stock <= 0 ? 'Critical' : nm.stock <= 10 ? 'Low' : 'Healthy';
+        const createdInv: InventoryItem = {
+          id: `inv-mat-${Date.now()}`,
+          name: nm.name,
+          type: nm.type,
+          category: nm.type === 'Packaging' ? 'Packaging' : 'Art Supplies',
+          stock: nm.stock,
+          unit: nm.unit,
+          reorderLevel: 10,
+          avgUnitCost: nm.avgUnitCost,
+          purchaseSource: 'Added from Recipe Studio',
+          status,
+        };
+        resolvedMatId = createdInv.id;
+        resolvedMatName = createdInv.name;
+        resolvedUnit = createdInv.unit;
+        setInventory((prev) => {
+          const nextInv = [createdInv, ...prev];
+          persist('vedh_inventory', nextInv);
+          return nextInv;
+        });
+      }
+    }
+
+    const newIng: RecipeIngredient = {
+      id: `rec-${Date.now()}`,
+      productId: payload.productId,
+      productName: payload.productName,
+      materialId: resolvedMatId,
+      materialName: resolvedMatName,
+      qtyPerUnit: payload.qtyPerUnit,
+      unit: resolvedUnit,
+    };
+
+    const nextRecipes = [...recipes, newIng];
+    setRecipes(nextRecipes);
+    persist('vedh_recipes', nextRecipes);
+    addLog(
+      'Recipe',
+      `Added ${resolvedMatName} (×${payload.qtyPerUnit} ${resolvedUnit}) to ${payload.productName}`
+    );
+  };
+
+  const handleUpdateRecipeIngredient = (
+    ingredientId: string,
+    updates: { qtyPerUnit?: number; overrideUnitCost?: number; unit?: string }
+  ) => {
+    const nextRecipes = recipes.map((r) =>
+      r.id === ingredientId ? { ...r, ...updates } : r
+    );
+    setRecipes(nextRecipes);
+    persist('vedh_recipes', nextRecipes);
+  };
+
+  const handleDeleteRecipeIngredient = (ingredientId: string) => {
+    const target = recipes.find((r) => r.id === ingredientId);
+    const nextRecipes = recipes.filter((r) => r.id !== ingredientId);
+    setRecipes(nextRecipes);
+    persist('vedh_recipes', nextRecipes);
+    if (target) {
+      addLog('Recipe', `Removed ${target.materialName} from ${target.productName}`);
+    }
+  };
+
+  const handleCloneRecipe = (
+    sourceProductName: string,
+    targetProductId: string,
+    targetProductName: string
+  ) => {
+    const sourceLines = recipes.filter(
+      (r) => normalizeNameKey(r.productName) === normalizeNameKey(sourceProductName)
+    );
+    if (sourceLines.length === 0) return;
+
+    const existingMatKeys = new Set(
+      recipes
+        .filter((r) => normalizeNameKey(r.productName) === normalizeNameKey(targetProductName))
+        .map((r) => normalizeNameKey(r.materialName))
+    );
+
+    const cloned: RecipeIngredient[] = sourceLines
+      .filter((s) => !existingMatKeys.has(normalizeNameKey(s.materialName)))
+      .map((s, idx) => ({
+        ...s,
+        id: `rec-${Date.now()}-${idx}`,
+        productId: targetProductId,
+        productName: targetProductName,
+      }));
+
+    if (cloned.length === 0) return;
+    const nextRecipes = [...recipes, ...cloned];
+    setRecipes(nextRecipes);
+    persist('vedh_recipes', nextRecipes);
+    addLog(
+      'Recipe',
+      `Cloned ${cloned.length} ingredients from "${sourceProductName}" to "${targetProductName}"`
+    );
+  };
+
+  const handleUpdateInventoryMaterial = (
+    materialId: string,
+    updates: { stock?: number; avgUnitCost?: number }
+  ) => {
+    const updated = inventory.map((item) => {
+      if (item.id !== materialId) return item;
+      const nextStock = updates.stock !== undefined ? Math.max(0, updates.stock) : item.stock;
+      const nextStatus: InventoryItem['status'] =
+        nextStock <= 0 ? 'Critical' : nextStock <= item.reorderLevel ? 'Low' : 'Healthy';
+      return {
+        ...item,
+        stock: nextStock,
+        avgUnitCost:
+          'avgUnitCost' in updates ? updates.avgUnitCost : item.avgUnitCost,
+        status: nextStatus,
+      };
+    });
+    setInventory(updated);
+    persist('vedh_inventory', updated);
+  };
+
+  const handleOpenRecipeForProduct = (productName: string) => {
+    setSelectedRecipeProductName(productName);
+    setActiveTab('recipe');
   };
 
   // Inventory Handlers
@@ -541,15 +825,25 @@ export default function Home() {
   };
 
   // Quick Action Dispatcher
-  const handleQuickAdd = (type: 'order' | 'product' | 'stock' | 'expense') => {
-    if (type === 'order') setIsNewOrderOpen(true);
-    if (type === 'product') setIsNewProductOpen(true);
+  const handleQuickAdd = (type: 'order' | 'product' | 'stock' | 'expense' | 'recipe') => {
+    if (type === 'order') {
+      setEditingOrder(null);
+      setIsNewOrderOpen(true);
+    }
+    if (type === 'product') {
+      setEditingProduct(null);
+      setIsNewProductOpen(true);
+    }
     if (type === 'stock') setIsNewStockOpen(true);
+    if (type === 'recipe') setActiveTab('recipe');
     if (type === 'expense') {
       setEditingExpense(null);
       setIsNewExpenseOpen(true);
     }
   };
+
+  const openOrdersBadgeCount = orders.filter((o) => isOrderOpen(o.status)).length;
+  const lowStockBadgeCount = inventory.filter((i) => i.stock <= i.reorderLevel).length;
 
   return (
     <div className="min-h-screen bg-[#FAF6F0] flex">
@@ -559,6 +853,8 @@ export default function Home() {
         setActiveTab={setActiveTab}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
+        openOrdersCount={openOrdersBadgeCount}
+        lowStockCount={lowStockBadgeCount}
       />
 
       {/* Main Content Area */}
@@ -577,43 +873,93 @@ export default function Home() {
               products={products}
               inventory={inventory}
               expenses={expenses}
+              recipes={recipes}
               platforms={getActiveOptions('platform')}
               setActiveTab={setActiveTab}
-              onOpenNewOrder={() => setIsNewOrderOpen(true)}
+              onOpenNewOrder={() => {
+                setEditingOrder(null);
+                setIsNewOrderOpen(true);
+              }}
               onOpenNewStock={() => setIsNewStockOpen(true)}
               onOpenNewExpense={() => {
                 setEditingExpense(null);
                 setIsNewExpenseOpen(true);
               }}
               onSelectOrderForInvoice={(order) => setSelectedOrderForInvoice(order)}
+              onOpenRecipeForProduct={handleOpenRecipeForProduct}
             />
           )}
 
           {activeTab === 'orders' && (
             <OrdersView
               orders={orders}
+              products={products}
+              recipes={recipes}
+              inventory={inventory}
               orderStatuses={getActiveOptions('order_status')}
-              onOpenNewOrder={() => setIsNewOrderOpen(true)}
+              onOpenNewOrder={() => {
+                setEditingOrder(null);
+                setIsNewOrderOpen(true);
+              }}
+              onEditOrder={(order) => {
+                setEditingOrder(order);
+                setIsNewOrderOpen(true);
+              }}
               onDeleteOrder={handleDeleteOrder}
               onUpdateStatus={handleUpdateOrderStatus}
+              onToggleDeductStock={handleToggleDeductStock}
+              onMarkPaid={handleMarkOrderPaid}
               onSelectOrderForInvoice={(order) => setSelectedOrderForInvoice(order)}
+              onOpenRecipeForProduct={handleOpenRecipeForProduct}
             />
           )}
 
           {activeTab === 'products' && (
             <ProductsView
               products={products}
-              onOpenNewProduct={() => setIsNewProductOpen(true)}
+              recipes={recipes}
+              orders={orders}
+              inventory={inventory}
+              onOpenNewProduct={() => {
+                setEditingProduct(null);
+                setIsNewProductOpen(true);
+              }}
+              onEditProduct={(product) => {
+                setEditingProduct(product);
+                setIsNewProductOpen(true);
+              }}
               onDeleteProduct={handleDeleteProduct}
+              onOpenRecipeForProduct={handleOpenRecipeForProduct}
+            />
+          )}
+
+          {activeTab === 'recipe' && (
+            <RecipeView
+              products={products}
+              recipes={recipes}
+              orders={orders}
+              inventory={inventory}
+              unitOptions={getActiveOptions('unit')}
+              selectedProductName={selectedRecipeProductName}
+              onSelectProductName={(name) => setSelectedRecipeProductName(name)}
+              onAddIngredient={handleAddRecipeIngredient}
+              onUpdateIngredient={handleUpdateRecipeIngredient}
+              onDeleteIngredient={handleDeleteRecipeIngredient}
+              onCloneRecipe={handleCloneRecipe}
+              onUpdateInventoryMaterial={handleUpdateInventoryMaterial}
             />
           )}
 
           {activeTab === 'inventory' && (
             <InventoryView
               inventory={inventory}
+              products={products}
+              recipes={recipes}
+              orders={orders}
               adjustmentReasons={getActiveOptions('adjustment_reason')}
               onOpenNewStock={() => setIsNewStockOpen(true)}
               onAdjustStock={handleAdjustStock}
+              onUpdateInventoryMaterial={handleUpdateInventoryMaterial}
             />
           )}
 
@@ -675,6 +1021,8 @@ export default function Home() {
               products={products}
               expenses={expenses}
               payments={payments}
+              recipes={recipes}
+              inventory={inventory}
               platforms={getActiveOptions('platform')}
             />
           )}
@@ -711,7 +1059,11 @@ export default function Home() {
           products={products}
           paymentModes={getActiveOptions('payment_mode')}
           orderStatuses={getActiveOptions('order_status')}
-          onClose={() => setIsNewOrderOpen(false)}
+          initialOrder={editingOrder}
+          onClose={() => {
+            setIsNewOrderOpen(false);
+            setEditingOrder(null);
+          }}
           onSave={handleSaveOrder}
         />
       )}
@@ -720,7 +1072,11 @@ export default function Home() {
         <NewProductModal
           categories={getActiveOptions('category')}
           units={getActiveOptions('unit')}
-          onClose={() => setIsNewProductOpen(false)}
+          initialProduct={editingProduct}
+          onClose={() => {
+            setIsNewProductOpen(false);
+            setEditingProduct(null);
+          }}
           onSave={handleSaveProduct}
         />
       )}

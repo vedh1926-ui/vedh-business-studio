@@ -8,11 +8,20 @@ import {
   Payment,
   HistoryLog,
   MasterListGroup,
+  RecipeIngredient,
 } from './types';
 import {
   initialPurchaseExpenses,
   initialSheetSuppliers,
 } from './purchaseSheetSeed';
+import {
+  initialSheetInventory,
+  initialSheetOrders,
+  initialSheetPayments,
+  initialSheetProducts,
+  initialSheetRecipes,
+} from './oprSheetSeed';
+import { buildCustomersFromOrders } from './oprFormulas';
 
 const mkItems = (prefix: string, labels: string[]) =>
   labels.map((label, idx) => ({
@@ -158,333 +167,45 @@ export const initialMasterLists: MasterListGroup[] = [
   },
 ];
 
-export const initialProducts: Product[] = [
-  {
-    id: 'prod-lotus-gold',
-    name: 'The Golden Lotus Diya',
-    category: 'Wax / Candles',
-    price: 1499,
-    estimatedCost: 550,
-    stock: 24,
-    unit: 'set',
-    reorderLevel: 10,
-    status: 'Healthy',
-    description: 'Multi-layered gold gilded lotus petals adorned with lustrous seed pearls and a hand-poured floral soy wax candle.',
-  },
-  {
-    id: 'prod-blossom-pearl',
-    name: 'Peach Blossom & Pearl Coaster',
-    category: 'Resin Supplies',
-    price: 1199,
-    estimatedCost: 480,
-    stock: 18,
-    unit: 'pcs',
-    reorderLevel: 8,
-    status: 'Healthy',
-    description: 'Delicate peach floral petals with golden rim and pearl border, crowned with a sculpted powder-blue floral candle.',
-  },
-  {
-    id: 'prod-turquoise-petal',
-    name: 'Turquoise Heritage Petal Platter',
-    category: 'Resin Supplies',
-    price: 1299,
-    estimatedCost: 520,
-    stock: 15,
-    unit: 'pcs',
-    reorderLevel: 8,
-    status: 'Healthy',
-    description: 'Layered sea-green and gold dipped floral tray with filigree brass tea-light holder and fragrant rose wax.',
-  },
-  {
-    id: 'prod-brocade-blue',
-    name: 'Royal Banarasi Brocade Favor',
-    category: 'Fabric',
-    price: 899,
-    estimatedCost: 350,
-    stock: 35,
-    unit: 'pcs',
-    reorderLevel: 15,
-    status: 'Healthy',
-    description: 'Traditional royal blue brocade silk base with hand-stitched white florals, gold twist cord, and filigree diya ring.',
-  },
-  {
-    id: 'prod-magenta-zardozi',
-    name: 'Magenta Pearl Festive Diya',
-    category: 'Kundan / Stones / Beads',
-    price: 799,
-    estimatedCost: 310,
-    stock: 28,
-    unit: 'pcs',
-    reorderLevel: 10,
-    status: 'Healthy',
-    description: 'Vibrant festive magenta beaded diya coaster with pearl embellishments and baby-blue lotus tea-light.',
-  },
-  {
-    id: 'prod-signature-hamper',
-    name: 'The Vedh Signature Gift Box (Set of 5)',
-    category: 'Packaging',
-    price: 4999,
-    estimatedCost: 1950,
-    stock: 12,
-    unit: 'set',
-    reorderLevel: 5,
-    status: 'Healthy',
-    description: 'The complete royal festive ensemble featuring all 5 artisanal diya pieces in a custom gold-embossed burgundy box.',
-  },
-];
+export const initialProducts: Product[] = initialSheetProducts;
 
-export const initialOrders: Order[] = [
-  {
-    id: 'ord-1024',
-    orderNumber: '#1024',
-    customerName: 'Ananya Mehta',
-    customerPhone: '+91 98201 44521',
-    customerEmail: 'ananya.m@example.com',
-    items: [
-      {
-        productId: 'prod-lotus-gold',
-        productName: 'The Golden Lotus Diya',
-        quantity: 2,
-        unitPrice: 1499,
-      },
-    ],
-    totalAmount: 2998,
-    advancePaid: 1500,
-    balanceDue: 1498,
-    status: 'In Production',
-    paymentMode: 'UPI',
-    createdAt: '2026-11-08',
-    targetDeliveryDate: '2026-11-15',
-    occasion: 'Diwali Festive Return Gifts (2 sets)',
-    notes: 'Add personalised calligraphy tags in gold foil.',
-  },
-  {
-    id: 'ord-1023',
-    orderNumber: '#1023',
-    customerName: 'Rohan Kapoor',
-    customerPhone: '+91 98112 33490',
-    customerEmail: 'rohan.kapoor@example.com',
-    items: [
-      {
-        productId: 'prod-brocade-blue',
-        productName: 'Royal Banarasi Brocade Favor',
-        quantity: 1,
-        unitPrice: 899,
-      },
-    ],
-    totalAmount: 899,
-    advancePaid: 899,
-    balanceDue: 0,
-    status: 'Ready',
-    paymentMode: 'UPI',
-    createdAt: '2026-11-07',
-    targetDeliveryDate: '2026-11-12',
-    occasion: 'Housewarming Gift',
-    notes: 'Include handwritten thank-you card.',
-  },
-  {
-    id: 'ord-1025',
-    orderNumber: '#1025',
-    customerName: 'Kavita & Aditya Wedding',
-    customerPhone: '+91 99304 88712',
-    customerEmail: 'kavita.aditya@example.com',
-    items: [
-      {
-        productId: 'prod-blossom-pearl',
-        productName: 'Peach Blossom & Pearl Coaster',
-        quantity: 50,
-        unitPrice: 1050,
-      },
-    ],
-    totalAmount: 52500,
-    advancePaid: 30000,
-    balanceDue: 22500,
-    status: 'New',
-    paymentMode: 'Net Banking',
-    createdAt: '2026-11-09',
-    targetDeliveryDate: '2026-12-05',
-    occasion: 'Wedding Guest Return Gifts (50 hampers)',
-    notes: 'Custom bride & groom initials engraved on back side.',
-  },
-];
+export const initialOrders: Order[] = initialSheetOrders;
 
-export const initialInventory: InventoryItem[] = [
-  {
-    id: 'inv-1',
-    name: 'The Golden Lotus Diya',
-    type: 'Finished Good',
-    category: 'Wax / Candles',
-    stock: 24,
-    unit: 'set',
-    reorderLevel: 10,
-    status: 'Healthy',
-  },
-  {
-    id: 'inv-2',
-    name: 'Peach Blossom & Pearl Coaster',
-    type: 'Finished Good',
-    category: 'Resin Supplies',
-    stock: 18,
-    unit: 'pcs',
-    reorderLevel: 8,
-    status: 'Healthy',
-  },
-  {
-    id: 'inv-3',
-    name: 'Royal Banarasi Brocade Favor',
-    type: 'Finished Good',
-    category: 'Fabric',
-    stock: 35,
-    unit: 'pcs',
-    reorderLevel: 15,
-    status: 'Healthy',
-  },
-  {
-    id: 'inv-4',
-    name: 'Pure Golden Soy Wax Flakes',
-    type: 'Raw Material',
-    category: 'Wax / Candles',
-    stock: 30,
-    unit: 'kg',
-    reorderLevel: 15,
-    status: 'Healthy',
-    supplier: 'Vedic Aromas & Waxes',
-  },
-  {
-    id: 'inv-5',
-    name: 'Handcrafted Lotus Brass Diya Rings',
-    type: 'Raw Material',
-    category: 'Metal Holders',
-    stock: 120,
-    unit: 'pcs',
-    reorderLevel: 50,
-    status: 'Healthy',
-    supplier: 'Jaipur Brass Guild',
-  },
-  {
-    id: 'inv-6',
-    name: 'Luxury Rigid Maroon Boxes with Gold Foil',
-    type: 'Packaging',
-    category: 'Packaging',
-    stock: 40,
-    unit: 'pack',
-    reorderLevel: 50,
-    status: 'Low',
-    supplier: 'Royal Box Printers',
-  },
-];
+export const initialInventory: InventoryItem[] = initialSheetInventory;
 
-export const initialCustomers: Customer[] = [
-  {
-    id: 'cust-1',
-    name: 'Ananya Mehta',
-    phone: '+91 98201 44521',
-    email: 'ananya.m@example.com',
-    city: 'Mumbai',
-    totalOrders: 1,
-    totalSpent: 2998,
-    type: 'Individual',
-    lastOrderDate: '2026-11-08',
-  },
-  {
-    id: 'cust-2',
-    name: 'Rohan Kapoor',
-    phone: '+91 98112 33490',
-    email: 'rohan.kapoor@example.com',
-    city: 'Delhi',
-    totalOrders: 1,
-    totalSpent: 899,
-    type: 'Individual',
-    lastOrderDate: '2026-11-07',
-  },
-  {
-    id: 'cust-3',
-    name: 'Kavita & Aditya Wedding',
-    phone: '+91 99304 88712',
-    email: 'kavita.aditya@example.com',
-    city: 'Jaipur',
-    totalOrders: 1,
-    totalSpent: 52500,
-    type: 'VIP',
-    lastOrderDate: '2026-11-09',
-  },
-];
+export const initialRecipes: RecipeIngredient[] = initialSheetRecipes;
+
+export const initialCustomers: Customer[] = buildCustomersFromOrders(initialSheetOrders);
 
 export const initialSuppliers: Supplier[] = initialSheetSuppliers;
 
 export const initialExpenses: Expense[] = initialPurchaseExpenses;
 
-export const initialPayments: Payment[] = [
-  {
-    id: 'pay-1',
-    orderNumber: '#1023',
-    customerName: 'Rohan Kapoor',
-    amount: 899,
-    date: '2026-11-07',
-    method: 'UPI',
-    status: 'Received',
-  },
-  {
-    id: 'pay-2',
-    orderNumber: '#1024',
-    customerName: 'Ananya Mehta',
-    amount: 1500,
-    date: '2026-11-08',
-    method: 'UPI',
-    status: 'Received',
-  },
-  {
-    id: 'pay-3',
-    orderNumber: '#1025',
-    customerName: 'Kavita & Aditya Wedding',
-    amount: 30000,
-    date: '2026-11-09',
-    method: 'Net Banking',
-    status: 'Received',
-  },
-];
+export const initialPayments: Payment[] = initialSheetPayments;
 
 export const initialHistory: HistoryLog[] = [
   {
     id: 'hist-1',
-    category: 'Product',
-    description: 'Product: The Golden Lotus Diya (24 set in stock, Healthy)',
-    timestamp: '2026-11-08 10:14',
+    category: 'Order',
+    description: 'Imported 43 order lines (22 customer orders, ₹28,400 total value, 17 open units)',
+    timestamp: '2026-11-11 09:00',
   },
   {
     id: 'hist-2',
     category: 'Product',
-    description: 'Product: Royal Banarasi Brocade Favor (35 pcs in stock, Healthy)',
-    timestamp: '2026-11-08 10:14',
+    description: 'Synced 31 catalog products across 10 collections with live margin & open-demand tracking',
+    timestamp: '2026-11-11 09:00',
   },
   {
     id: 'hist-3',
-    category: 'Order',
-    description: 'Order #1024 created for Ananya Mehta (₹2,998) - Status: In Production',
-    timestamp: '2026-11-08 11:30',
+    category: 'Recipe',
+    description: 'Imported 23 recipe ingredient lines across 3 products & linked Purchase landed unit costs',
+    timestamp: '2026-11-11 09:00',
   },
   {
     id: 'hist-4',
-    category: 'Payment',
-    description: 'Payment ₹1,500 received via UPI from Ananya Mehta for Order #1024',
-    timestamp: '2026-11-08 11:32',
-  },
-  {
-    id: 'hist-5',
-    category: 'Order',
-    description: 'Order #1023 marked as Ready for Rohan Kapoor (₹899)',
-    timestamp: '2026-11-08 15:45',
-  },
-  {
-    id: 'hist-6',
-    category: 'Customer',
-    description: 'Customer profile registered: Kavita & Aditya Wedding (Jaipur)',
-    timestamp: '2026-11-09 09:20',
-  },
-  {
-    id: 'hist-7',
-    category: 'Order',
-    description: 'Order #1025 (50 Bulk Return Gift Hampers) placed - Status: New',
-    timestamp: '2026-11-09 11:00',
+    category: 'Expense',
+    description: 'Synced 131 procurement purchases (₹34,831.25) across 15 platforms/vendors',
+    timestamp: '2026-11-11 09:00',
   },
 ];

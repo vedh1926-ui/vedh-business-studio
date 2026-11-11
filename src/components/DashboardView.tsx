@@ -1,7 +1,14 @@
 'use client';
 
 import React from 'react';
-import { Order, Product, InventoryItem, Expense, ActiveTab } from '@/lib/types';
+import {
+  ActiveTab,
+  Expense,
+  InventoryItem,
+  Order,
+  Product,
+  RecipeIngredient,
+} from '@/lib/types';
 import { formatINR } from '@/lib/utils';
 import {
   computePurchaseOverview,
@@ -9,9 +16,15 @@ import {
   computeCategorySpend,
 } from '@/lib/purchaseFormulas';
 import {
+  buildCombinedInvoiceOrder,
+  computeOrderMetrics,
+  computeOrderOverview,
+  computeRecipeAndProductSnapshot,
+} from '@/lib/oprFormulas';
+import {
   ArrowUpRight,
   AlertTriangle,
-  PackageCheck,
+  Layers,
   Clock,
   Sparkles,
   Truck,
@@ -24,12 +37,14 @@ interface DashboardViewProps {
   products: Product[];
   inventory: InventoryItem[];
   expenses: Expense[];
+  recipes?: RecipeIngredient[];
   platforms?: string[];
   setActiveTab: (tab: ActiveTab) => void;
   onOpenNewOrder: () => void;
   onOpenNewStock: () => void;
   onOpenNewExpense?: () => void;
   onSelectOrderForInvoice: (order: Order) => void;
+  onOpenRecipeForProduct?: (productName: string) => void;
 }
 
 export default function DashboardView({
@@ -37,20 +52,24 @@ export default function DashboardView({
   products,
   inventory,
   expenses,
+  recipes = [],
   platforms = [],
   setActiveTab,
   onOpenNewOrder,
   onOpenNewStock,
   onOpenNewExpense,
   onSelectOrderForInvoice,
+  onOpenRecipeForProduct,
 }: DashboardViewProps) {
-  // Calculate live metrics from Orders & Purchase Formulas
+  // Calculate live metrics across Orders, Products, Recipes & Purchases
   const purchaseOverview = computePurchaseOverview(expenses);
   const platformStats = computePlatformStats(expenses, platforms);
   const categorySpend = computeCategorySpend(expenses);
+  const recipeSnapshot = computeRecipeAndProductSnapshot(products, recipes, orders, inventory);
+  const orderOverview = computeOrderOverview(orders, recipeSnapshot.productEconomicsByName);
 
-  const totalOrderValue = orders.reduce((acc, curr) => acc + curr.totalAmount, 0);
-  const totalReceived = orders.reduce((acc, curr) => acc + curr.advancePaid, 0);
+  const totalOrderValue = orderOverview.totalOrderValue;
+  const totalReceived = orderOverview.totalReceived;
   const totalExpenses = purchaseOverview.totalSpend;
   const grossPosition = totalReceived - totalExpenses;
 
@@ -58,6 +77,12 @@ export default function DashboardView({
   const ordersInMotion = orders.filter(
     (o) => o.status !== 'Delivered' && o.status !== 'Cancelled'
   );
+
+  // Recipe readiness stats
+  const productEcons = Object.values(recipeSnapshot.productEconomicsById);
+  const productsWithRecipeCount = productEcons.filter((e) => e.hasRecipe).length;
+  const openProductsNeedingRecipe = productEcons.filter((e) => e.openUnits > 0 && !e.hasRecipe);
+  const costedProductsSample = productEcons.filter((e) => e.hasRecipe);
 
   // Low stock items
   const lowStockItems = inventory.filter((item) => item.stock <= item.reorderLevel);
@@ -83,26 +108,32 @@ export default function DashboardView({
       {/* 4 Core Financial Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Order value */}
-        <div className="bg-white border border-[#E8DDCF] rounded-xl p-5 shadow-sm hover:shadow-md transition">
+        <div
+          onClick={() => setActiveTab('orders')}
+          className="bg-white border border-[#E8DDCF] rounded-xl p-5 shadow-sm hover:shadow-md transition cursor-pointer"
+        >
           <div className="text-xs font-medium text-[#7A6E6E] tracking-wide">Order value</div>
           <div className="mt-2 text-2xl sm:text-3xl font-serif font-bold text-[#2C181B]">
             {formatINR(totalOrderValue)}
           </div>
           <div className="mt-1 text-xs text-[#8C7D7D] flex items-center justify-between">
-            <span>All recorded orders</span>
-            <span className="text-[#8F243C] font-medium">{orders.length} orders</span>
+            <span>{orderOverview.distinctOrdersCount} orders ({orderOverview.totalOrderLines} lines)</span>
+            <span className="text-[#8F243C] font-medium">{orderOverview.openUnitsCount} open units</span>
           </div>
         </div>
 
         {/* Customer payments */}
-        <div className="bg-white border border-[#E8DDCF] rounded-xl p-5 shadow-sm hover:shadow-md transition">
+        <div
+          onClick={() => setActiveTab('orders')}
+          className="bg-white border border-[#E8DDCF] rounded-xl p-5 shadow-sm hover:shadow-md transition cursor-pointer"
+        >
           <div className="text-xs font-medium text-[#7A6E6E] tracking-wide">Customer payments</div>
           <div className="mt-2 text-2xl sm:text-3xl font-serif font-bold text-emerald-800">
             {formatINR(totalReceived)}
           </div>
           <div className="mt-1 text-xs text-[#8C7D7D] flex items-center justify-between">
             <span>Money received</span>
-            <span className="text-emerald-700 font-medium">Verified</span>
+            <span className="text-rose-700 font-medium">{formatINR(orderOverview.totalBalanceDue)} due</span>
           </div>
         </div>
 
@@ -169,54 +200,71 @@ export default function DashboardView({
                 No active orders in production.
               </div>
             ) : (
-              ordersInMotion.map((order) => (
-                <div
-                  key={order.id}
-                  className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#FAF6F0]/60 px-2 rounded-lg transition"
-                >
-                  <div className="flex items-center space-x-3">
-                    <span className="font-mono text-xs font-semibold text-[#8F243C] bg-[#FAF0E6] px-2 py-1 rounded">
-                      {order.orderNumber}
-                    </span>
-                    <div>
-                      <div className="text-sm font-semibold text-[#2C181B]">
-                        {order.customerName}
-                      </div>
-                      <div className="text-xs text-[#7A6E6E]">
-                        {order.items.map((i) => `${i.productName} × ${i.quantity}`).join(', ')}
+              ordersInMotion.map((order) => {
+                const m = computeOrderMetrics(order, recipeSnapshot.productEconomicsByName);
+                return (
+                  <div
+                    key={order.id}
+                    className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#FAF6F0]/60 px-2 rounded-lg transition"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="font-mono text-xs font-semibold text-[#8F243C] bg-[#FAF0E6] px-2 py-1 rounded">
+                        {order.orderNumber}
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-[#2C181B]">
+                            {order.customerName}
+                          </span>
+                          {m.dueAlert && (
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                m.dueAlert === 'Overdue'
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {m.dueAlert}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-[#7A6E6E]">
+                          {order.items.map((i) => `${i.productName} × ${i.quantity}`).join(', ')}
+                          {order.targetDeliveryDate ? ` • Due ${order.targetDeliveryDate}` : ''}
+                        </div>
                       </div>
                     </div>
+
+                    <div className="flex items-center space-x-3 justify-between sm:justify-end">
+                      <span className="text-sm font-semibold font-serif text-[#2C181B]">
+                        {formatINR(m.totalAmount)}
+                      </span>
+
+                      <span
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                          order.status === 'In Production' || order.status === 'Production'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                            : order.status === 'Ready'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : order.status === 'New'
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : 'bg-stone-100 text-stone-700'
+                        }`}
+                      >
+                        {order.status}
+                      </span>
+
+                      <button
+                        onClick={() => onSelectOrderForInvoice(buildCombinedInvoiceOrder(order, orders))}
+                        className="text-xs text-[#8F243C] hover:underline font-medium"
+                        title="Generate or view combined Invoice"
+                      >
+                        Invoice
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="flex items-center space-x-3 justify-between sm:justify-end">
-                    <span className="text-sm font-semibold font-serif text-[#2C181B]">
-                      {formatINR(order.totalAmount)}
-                    </span>
-
-                    <span
-                      className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                        order.status === 'In Production' || order.status === 'Production'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : order.status === 'Ready'
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : order.status === 'New'
-                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                          : 'bg-stone-100 text-stone-700'
-                      }`}
-                    >
-                      {order.status}
-                    </span>
-
-                    <button
-                      onClick={() => onSelectOrderForInvoice(order)}
-                      className="text-xs text-[#8F243C] hover:underline font-medium"
-                      title="Generate or view Invoice"
-                    >
-                      Invoice
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -255,7 +303,7 @@ export default function DashboardView({
                   All inventory healthy. No reorders needed!
                 </div>
               ) : (
-                lowStockItems.map((item) => (
+                lowStockItems.slice(0, 6).map((item) => (
                   <div
                     key={item.id}
                     className="p-3 bg-[#FAF5EE] border border-[#EBDCCB] rounded-xl flex items-center justify-between"
@@ -274,6 +322,14 @@ export default function DashboardView({
                   </div>
                 ))
               )}
+              {lowStockItems.length > 6 && (
+                <button
+                  onClick={() => setActiveTab('inventory')}
+                  className="w-full text-center text-xs text-[#8F243C] font-semibold hover:underline pt-1"
+                >
+                  +{lowStockItems.length - 6} more items in Inventory →
+                </button>
+              )}
             </div>
           </div>
 
@@ -282,6 +338,97 @@ export default function DashboardView({
             <p className="text-[11px] italic text-[#8F243C] font-serif">
               "Keeping Indian tradition alive through designer artisan pieces."
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Recipes, Open Demand & Margin Readiness */}
+      <div className="bg-white border border-[#E8DDCF] rounded-2xl p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <div className="flex items-center space-x-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#8F243C] mb-0.5">
+              <Layers size={13} className="text-[#C69C31]" />
+              <span>Products &amp; Recipe Economics (Live Sync)</span>
+            </div>
+            <h3 className="font-serif text-lg font-bold text-[#2C181B]">
+              Recipe Coverage &amp; Unit Margins
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2.5 py-1 rounded-full bg-[#FAF5EE] border border-[#E8DDCF] font-semibold text-[#541523]">
+              {productsWithRecipeCount} / {products.length} recipes active
+            </span>
+            <button
+              onClick={() => setActiveTab('recipe')}
+              className="px-3 py-1.5 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-white text-xs font-semibold transition"
+            >
+              Open Recipe Studio
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+          {/* Open Orders Needing Recipes */}
+          <div className="space-y-2.5">
+            <p className="font-semibold text-[#635B5B]">
+              Open Order Demand Missing Recipes ({openProductsNeedingRecipe.length})
+            </p>
+            {openProductsNeedingRecipe.length === 0 ? (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800">
+                Every open order product has a configured recipe!
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {openProductsNeedingRecipe.map((econ) => (
+                  <div
+                    key={econ.productId}
+                    className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between gap-2"
+                  >
+                    <div>
+                      <div className="font-semibold text-[#2C181B]">{econ.productName}</div>
+                      <div className="text-[11px] text-amber-800">
+                        {econ.openUnits} open units • Missing BOM for stock check
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onOpenRecipeForProduct ? onOpenRecipeForProduct(econ.productName) : setActiveTab('recipe')}
+                      className="px-2.5 py-1 rounded-md bg-white border border-amber-300 text-[#541523] font-semibold hover:bg-[#FAF5EE] shrink-0"
+                    >
+                      + Build Recipe
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Configured Product Margins */}
+          <div className="space-y-2.5">
+            <p className="font-semibold text-[#635B5B]">
+              Configured Product Margins ({costedProductsSample.length})
+            </p>
+            <div className="space-y-2">
+              {costedProductsSample.slice(0, 4).map((econ) => (
+                <div
+                  key={econ.productId}
+                  onClick={() => onOpenRecipeForProduct ? onOpenRecipeForProduct(econ.productName) : setActiveTab('recipe')}
+                  className="p-3 rounded-xl bg-[#FDFBF7] border border-[#E8DDCF] flex items-center justify-between gap-2 cursor-pointer hover:bg-[#FAF5EE] transition"
+                >
+                  <div>
+                    <div className="font-semibold text-[#2C181B]">{econ.productName}</div>
+                    <div className="text-[11px] text-[#7A6E6E]">
+                      Price {formatINR(econ.price)} • Mat cost {formatINR(econ.materialCostPerUnit, 2)} ({econ.costedIngredientCount}/{econ.ingredientCount} costed)
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-bold text-emerald-700">
+                      {econ.marginPerUnit !== null ? formatINR(econ.marginPerUnit, 2) : '—'}
+                    </div>
+                    <div className="text-[10px] text-[#8C7D7D]">{econ.marginPct ?? 0}% margin</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
