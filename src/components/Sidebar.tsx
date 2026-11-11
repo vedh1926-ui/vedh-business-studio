@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { ActiveTab } from '@/lib/types';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { SupabaseSyncDiagnostic } from '@/lib/studioSync';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -33,6 +34,8 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void;
   openOrdersCount?: number;
   lowStockCount?: number;
+  syncDiagnostic?: SupabaseSyncDiagnostic;
+  lastSavedAt?: string | null;
 }
 
 export default function Sidebar({
@@ -42,6 +45,8 @@ export default function Sidebar({
   setIsOpen,
   openOrdersCount,
   lowStockCount,
+  syncDiagnostic,
+  lastSavedAt,
 }: SidebarProps) {
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
@@ -164,18 +169,31 @@ export default function Sidebar({
           </nav>
         </div>
 
-        {/* Cloud Connection & Status Footer */}
+        {/* Sync & Storage Status Footer */}
         <div className="p-4 border-t border-[#6E1C30]/50 bg-[#3D0E18]/70 text-[11px] text-[#E8DDCF]/80">
-          <div className="flex items-center space-x-2 mb-1.5">
-            <Cloud size={14} className="text-[#D4AF37]" />
-            <span className="font-medium text-[#F3E3B5]">
-              {isSupabaseConfigured ? 'Supabase Connected' : 'Local Storage Mode'}
-            </span>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center space-x-2">
+              <Cloud size={14} className="text-[#D4AF37]" />
+              <span className="font-medium text-[#F3E3B5]">
+                {syncDiagnostic
+                  ? syncDiagnostic.sidebarTitle
+                  : isSupabaseConfigured
+                  ? 'Local + Tab Sync'
+                  : 'Local Storage Mode'}
+              </span>
+            </div>
+            {lastSavedAt && (
+              <span className="text-[10px] text-emerald-300 font-mono">
+                {lastSavedAt}
+              </span>
+            )}
           </div>
           <p className="text-[10px] text-[#E8DDCF]/60 leading-relaxed">
-            {isSupabaseConfigured
-              ? 'Real-time synchronization enabled.'
-              : 'Local workspace is active. Connect Supabase credentials in Settings to sync with cloud.'}
+            {syncDiagnostic
+              ? syncDiagnostic.sidebarSubtitle
+              : isSupabaseConfigured
+              ? 'Checking cloud schema... Cross-tab live sync active.'
+              : 'Local workspace is active with instant cross-tab sync.'}
           </p>
         </div>
       </aside>

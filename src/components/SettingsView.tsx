@@ -2,9 +2,15 @@
 
 import React, { useState } from 'react';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { SupabaseSyncDiagnostic } from '@/lib/studioSync';
 import { Settings as SettingsIcon, Cloud, ShieldCheck, Key, CheckCircle, ExternalLink } from 'lucide-react';
 
-export default function SettingsView() {
+interface SettingsViewProps {
+  syncDiagnostic?: SupabaseSyncDiagnostic;
+  lastSavedAt?: string | null;
+}
+
+export default function SettingsView({ syncDiagnostic, lastSavedAt }: SettingsViewProps) {
   const [businessName, setBusinessName] = useState('Vedh');
   const [currency, setCurrency] = useState('INR (₹)');
   const [showLowStock, setShowLowStock] = useState(true);
@@ -119,18 +125,30 @@ export default function SettingsView() {
         </p>
 
         <div className="p-4 rounded-xl border border-[#E8DDCF] bg-[#FAF5EE] space-y-3 text-xs">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center space-x-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  syncDiagnostic?.state === 'cloud-ready'
+                    ? 'bg-emerald-500'
+                    : isSupabaseConfigured
+                    ? 'bg-amber-500'
+                    : 'bg-amber-500'
+                }`}
+              />
               <span className="font-semibold text-[#2C181B]">
-                {isSupabaseConfigured ? 'Connected to Supabase PostgreSQL' : 'Operating in Secure Local State'}
+                {syncDiagnostic
+                  ? syncDiagnostic.settingsHeading
+                  : isSupabaseConfigured
+                  ? 'Supabase Credentials Present (Local Storage Workspace Active)'
+                  : 'Operating in Secure Local State'}
               </span>
             </div>
             <a
               href="https://supabase.com/dashboard"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center space-x-1 text-[11px] text-[#8F243C] font-semibold hover:underline"
+              className="inline-flex items-center space-x-1 text-[11px] text-[#8F243C] font-semibold hover:underline shrink-0"
             >
               <span>Supabase Dashboard</span>
               <ExternalLink size={12} />
@@ -138,7 +156,18 @@ export default function SettingsView() {
           </div>
 
           <p className="text-[11px] text-[#635B5B] leading-relaxed">
-            To link your remote cloud database, add your credentials in <code>.env.local</code> (or Vercel environment variables):
+            {syncDiagnostic
+              ? syncDiagnostic.settingsDetail
+              : 'Edits save directly to your browser workspace and sync immediately across open tabs in the same browser.'}
+            {lastSavedAt && (
+              <span className="ml-2 font-mono text-emerald-700">
+                Last saved at {lastSavedAt}.
+              </span>
+            )}
+          </p>
+
+          <p className="text-[11px] text-[#635B5B] leading-relaxed">
+            To apply the latest tables/columns on Supabase, execute <code>supabase_schema.sql</code> in the Supabase SQL Editor and ensure environment variables are set:
           </p>
 
           <pre className="p-3 bg-[#3D0E18] text-[#F3E3B5] rounded-lg font-mono text-[11px] overflow-x-auto">

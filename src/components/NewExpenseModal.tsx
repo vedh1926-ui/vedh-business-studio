@@ -91,11 +91,21 @@ export default function NewExpenseModal({
   const [contactDetails, setContactDetails] = useState(
     initialExpense?.contactDetails || ''
   );
+  const initialDefaultUnits = initialExpense
+    ? round2(
+        Math.max(0, initialExpense.qty ?? 1) *
+          (initialExpense.piecesPerPack && initialExpense.piecesPerPack > 0
+            ? initialExpense.piecesPerPack
+            : 1)
+      )
+    : 0;
+  const hasCustomStockQty =
+    initialExpense?.stockQtyReceived !== undefined &&
+    round2(initialExpense.stockQtyReceived) !== initialDefaultUnits;
+
   const [stockItem, setStockItem] = useState(initialExpense?.stockItem || '');
   const [stockQtyStr, setStockQtyStr] = useState(
-    initialExpense?.stockQtyReceived !== undefined
-      ? String(initialExpense.stockQtyReceived)
-      : ''
+    hasCustomStockQty ? String(initialExpense?.stockQtyReceived) : ''
   );
   const [appliedToStock, setAppliedToStock] = useState<boolean>(
     initialExpense?.appliedToStock ?? !initialExpense
@@ -105,7 +115,8 @@ export default function NewExpenseModal({
   // Live spreadsheet formulas preview
   const liveFormulas = useMemo(() => {
     const qty = Math.max(0, parseFloat(qtyStr) || 0);
-    const piecesPerPack = Math.max(1, parseFloat(piecesStr) || 1);
+    const parsedPieces = parseFloat(piecesStr);
+    const piecesPerPack = parsedPieces > 0 ? parsedPieces : 1;
     const unitPrice = parseFloat(unitPriceStr) || 0;
     const shipping = parseFloat(shippingStr) || 0;
     const subtotal = round2(qty * unitPrice);
@@ -143,8 +154,8 @@ export default function NewExpenseModal({
         category,
         title: title.trim(),
         dimensions: dimensions.trim() || undefined,
-        qty: liveFormulas.qty || 1,
-        piecesPerPack: liveFormulas.piecesPerPack || 1,
+        qty: liveFormulas.qty,
+        piecesPerPack: liveFormulas.piecesPerPack,
         unitPrice: liveFormulas.unitPrice,
         shipping: liveFormulas.shipping,
         amount: liveFormulas.totalCost,
@@ -157,11 +168,15 @@ export default function NewExpenseModal({
         invoiceNo: invoiceNo.trim() || undefined,
         receiptFile: receiptFile.trim() || undefined,
         imageRef: imageRef.trim() || undefined,
-      contactDetails: contactDetails.trim() || undefined,
-      stockItem: stockItem.trim() || undefined,
-      stockQtyReceived: stockQtyStr ? parseFloat(stockQtyStr) || undefined : undefined,
-      appliedToStock: Boolean(stockItem.trim()) && appliedToStock,
-      notes: notes.trim() || undefined,
+        contactDetails: contactDetails.trim() || undefined,
+        stockItem: stockItem.trim() || undefined,
+        stockQtyReceived: stockQtyStr.trim()
+          ? parseFloat(stockQtyStr) || undefined
+          : stockItem.trim()
+          ? liveFormulas.totalUnits
+          : undefined,
+        appliedToStock: Boolean(stockItem.trim()) && appliedToStock,
+        notes: notes.trim() || undefined,
       },
       initialExpense?.id
     );
@@ -296,7 +311,7 @@ export default function NewExpenseModal({
               <input
                 type="number"
                 step="any"
-                min="1"
+                min="0.01"
                 value={piecesStr}
                 onChange={(e) => setPiecesStr(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"

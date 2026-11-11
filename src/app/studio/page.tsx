@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import DashboardView from '@/components/DashboardView';
@@ -62,6 +62,16 @@ import {
   normalizeNameKey,
 } from '@/lib/oprFormulas';
 import { round2 } from '@/lib/utils';
+import {
+  EXPENSES_DATA_VERSION,
+  OPR_DATA_VERSION,
+  SupabaseSyncDiagnostic,
+  persistStudioKey,
+  probeSupabaseSchemaStatus,
+  readVersionFlag,
+  subscribeStudioSync,
+  writeVersionFlag,
+} from '@/lib/studioSync';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -91,13 +101,33 @@ export default function Home() {
   const [isNewStockOpen, setIsNewStockOpen] = useState(false);
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [syncDiagnostic, setSyncDiagnostic] = useState<SupabaseSyncDiagnostic | undefined>(undefined);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hydrate from localStorage on client mount if available
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 3200);
+  };
+
+  const formatSaveClock = () =>
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  // Hydrate from localStorage on client mount & keep tabs synchronized in real time
   useEffect(() => {
+    let active = true;
+
     try {
       // Upgrade Orders / Products / Recipes / Inventory once to the audited clean workbook v4.0_clean
-      const oprVer = localStorage.getItem('vedh_opr_version');
-      if (oprVer === '4.0_clean') {
+      const oprVer = readVersionFlag('vedh_opr_version');
+      if (oprVer === OPR_DATA_VERSION) {
+        writeVersionFlag('vedh_opr_version', OPR_DATA_VERSION);
         const savedOrders = localStorage.getItem('vedh_orders');
         const parsedOrders: Order[] = savedOrders ? JSON.parse(savedOrders) : initialOrders;
         setOrders(parsedOrders);
@@ -131,7 +161,7 @@ export default function Home() {
         localStorage.setItem('vedh_recipes', JSON.stringify(initialRecipes));
         localStorage.setItem('vedh_customers', JSON.stringify(initialCustomers));
         localStorage.setItem('vedh_payments', JSON.stringify(initialPayments));
-        localStorage.setItem('vedh_opr_version', '4.0_clean');
+        writeVersionFlag('vedh_opr_version', OPR_DATA_VERSION);
         setOrders(initialOrders);
         setProducts(initialProducts);
         setInventory(initialInventory);
@@ -142,20 +172,22 @@ export default function Home() {
       }
 
       // Upgrade expenses/suppliers to v4.0_clean with Shipped incoming stock links
-      const sheetVer = localStorage.getItem('vedh_expenses_version');
+      const sheetVer = readVersionFlag('vedh_expenses_version');
       const savedExpenses = localStorage.getItem('vedh_expenses');
-      if (savedExpenses && sheetVer === '4.0_clean') {
+      if (savedExpenses && sheetVer === EXPENSES_DATA_VERSION) {
+        // Ensure plain string flag (fixes legacy JSON-quoted '"4.0_clean"' values)
+        writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
         setExpenses(JSON.parse(savedExpenses));
       } else {
         localStorage.setItem('vedh_expenses', JSON.stringify(initialExpenses));
-        localStorage.setItem('vedh_expenses_version', '4.0_clean');
+        writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
         localStorage.setItem('vedh_suppliers', JSON.stringify(initialSuppliers));
         setExpenses(initialExpenses);
         setSuppliers(initialSuppliers);
       }
 
       const savedSuppliers = localStorage.getItem('vedh_suppliers');
-      if (savedSuppliers && sheetVer === '4.0_clean') {
+      if (savedSuppliers && sheetVer === EXPENSES_DATA_VERSION) {
         setSuppliers(JSON.parse(savedSuppliers));
       }
 
@@ -174,13 +206,52 @@ export default function Home() {
     } catch {
       // LocalStorage access restricted or empty
     }
+
+    probeSupabaseSchemaStatus().then((diag) => {
+      if (active) setSyncDiagnostic(diag);
+    });
+
+    const syncHandlers: Record<string, (parsed: any) => void> = {
+      vedh_orders: setOrders,
+      vedh_products: setProducts,
+      vedh_inventory: setInventory,
+      vedh_adjustments: setAdjustments,
+      vedh_recipes: setRecipes,
+      vedh_customers: setCustomers,
+      vedh_suppliers: setSuppliers,
+      vedh_expenses: setExpenses,
+      vedh_payments: setPayments,
+      vedh_master_lists: setMasterLists,
+    };
+
+    const unsubscribe = subscribeStudioSync((changedKey) => {
+      const handler = syncHandlers[changedKey];
+      if (!handler) return;
+      try {
+        const raw = localStorage.getItem(changedKey);
+        if (raw) {
+          handler(JSON.parse(raw));
+          setLastSavedAt(formatSaveClock());
+        }
+      } catch {
+        // Ignore malformed storage payload from external tab
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
   }, []);
 
-  // Save changes to localStorage
+  // Save changes to localStorage and notify other open Studio tabs
   const persist = (key: string, data: any) => {
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch {}
+    if (persistStudioKey(key, data)) {
+      setLastSavedAt(formatSaveClock());
+    }
   };
 
   // Active option lookup helper from Master Lists
@@ -642,8 +713,9 @@ export default function Home() {
       );
       setExpenses(updated);
       persist('vedh_expenses', updated);
-      persist('vedh_expenses_version', '4.0_clean');
+      writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
       addLog('Expense', `Purchase updated: ${expData.title} (₹${expData.amount})`);
+      showToast(`Purchase updated: ${expData.title}`);
       return;
     }
 
@@ -654,11 +726,12 @@ export default function Home() {
     const updated = [newExpense, ...expenses];
     setExpenses(updated);
     persist('vedh_expenses', updated);
-    persist('vedh_expenses_version', '4.0_clean');
+    writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
     addLog(
       'Expense',
       `Purchase recorded (${newExpense.platform || 'Direct'}): ${newExpense.title} (₹${newExpense.amount})`
     );
+    showToast(`Purchase recorded: ${newExpense.title}`);
   };
 
   const handleUpdateExpenseStatus = (id: string, purchaseStatus: string) => {
@@ -668,6 +741,7 @@ export default function Home() {
     persist('vedh_expenses', updated);
     if (target) {
       addLog('Expense', `Purchase status for ${target.title} updated to ${purchaseStatus}`);
+      showToast(`${target.title} marked ${purchaseStatus}`);
     }
   };
 
@@ -678,6 +752,7 @@ export default function Home() {
     persist('vedh_expenses', updated);
     if (target) {
       addLog('Expense', `Purchase deleted: ${target.title} (₹${target.amount})`);
+      showToast(`Deleted purchase: ${target.title}`);
     }
   };
 
@@ -686,8 +761,9 @@ export default function Home() {
     setSuppliers(initialSuppliers);
     persist('vedh_expenses', initialExpenses);
     persist('vedh_suppliers', initialSuppliers);
-    persist('vedh_expenses_version', '4.0_clean');
+    writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
     addLog('Expense', 'Reloaded cleaned Purchase Sheet defaults');
+    showToast('Reloaded default Purchase Sheet');
   };
 
   // Master Lists CRUD Handlers
@@ -817,7 +893,9 @@ export default function Home() {
 
   // Customers Handlers
   const handleDeleteCustomer = (id: string) => {
-    setCustomers(customers.filter((c) => c.id !== id));
+    const updated = customers.filter((c) => c.id !== id);
+    setCustomers(updated);
+    persist('vedh_customers', updated);
   };
 
   // Suppliers Handlers
@@ -828,12 +906,16 @@ export default function Home() {
       totalOrders: 0,
       totalPaid: 0,
     };
-    setSuppliers([newSup, ...suppliers]);
+    const updated = [newSup, ...suppliers];
+    setSuppliers(updated);
+    persist('vedh_suppliers', updated);
     addLog('Product', `Material supplier added: ${newSup.name} (${newSup.category})`);
   };
 
   const handleDeleteSupplier = (id: string) => {
-    setSuppliers(suppliers.filter((s) => s.id !== id));
+    const updated = suppliers.filter((s) => s.id !== id);
+    setSuppliers(updated);
+    persist('vedh_suppliers', updated);
   };
 
   // Payments Handlers
@@ -848,16 +930,16 @@ export default function Home() {
 
     // If matches order, update balance
     if (newPay.orderNumber) {
-      setOrders(
-        orders.map((o) => {
-          if (o.orderNumber === newPay.orderNumber) {
-            const nextAdv = o.advancePaid + newPay.amount;
-            const nextBal = Math.max(0, o.totalAmount - nextAdv);
-            return { ...o, advancePaid: nextAdv, balanceDue: nextBal };
-          }
-          return o;
-        })
-      );
+      const nextOrders = orders.map((o) => {
+        if (o.orderNumber === newPay.orderNumber) {
+          const nextAdv = o.advancePaid + newPay.amount;
+          const nextBal = Math.max(0, o.totalAmount - nextAdv);
+          return { ...o, advancePaid: nextAdv, balanceDue: nextBal };
+        }
+        return o;
+      });
+      setOrders(nextOrders);
+      persist('vedh_orders', nextOrders);
     }
 
     addLog('Payment', `Payment of ₹${newPay.amount} received from ${newPay.customerName}`);
@@ -894,6 +976,8 @@ export default function Home() {
         setIsOpen={setIsSidebarOpen}
         openOrdersCount={openOrdersBadgeCount}
         lowStockCount={lowStockBadgeCount}
+        syncDiagnostic={syncDiagnostic}
+        lastSavedAt={lastSavedAt}
       />
 
       {/* Main Content Area */}
@@ -1091,10 +1175,23 @@ export default function Home() {
             />
           )}
 
-          {activeTab === 'settings' && <SettingsView />}
+          {activeTab === 'settings' && (
+            <SettingsView syncDiagnostic={syncDiagnostic} lastSavedAt={lastSavedAt} />
+          )}
 
           {activeTab === 'history' && <HistoryView logs={history} />}
         </main>
+
+        {toastMessage && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-5 right-5 z-50 bg-[#541523] text-[#F3E3B5] border border-[#D4AF37]/40 shadow-lg rounded-xl px-4 py-2.5 text-xs font-medium flex items-center space-x-2"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
       </div>
 
       {/* Global Modals */}
@@ -1107,6 +1204,7 @@ export default function Home() {
 
       {isNewOrderOpen && (
         <NewOrderModal
+          key={editingOrder?.id ?? 'new-order'}
           products={products}
           paymentModes={getActiveOptions('payment_mode')}
           orderStatuses={getActiveOptions('order_status')}
@@ -1121,6 +1219,7 @@ export default function Home() {
 
       {isNewProductOpen && (
         <NewProductModal
+          key={editingProduct?.id ?? 'new-product'}
           categories={getActiveOptions('category')}
           units={getActiveOptions('unit')}
           initialProduct={editingProduct}
@@ -1143,6 +1242,7 @@ export default function Home() {
 
       {isNewExpenseOpen && (
         <NewExpenseModal
+          key={editingExpense?.id ?? 'new-expense'}
           initialExpense={editingExpense}
           platforms={getActiveOptions('platform')}
           categories={getActiveOptions('category')}

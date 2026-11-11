@@ -131,6 +131,8 @@ export default function ExpensesView({
           exp.supplierName,
           exp.invoiceNo,
           exp.dimensions,
+          exp.stockItem,
+          exp.contactDetails,
           exp.notes,
         ]
           .filter(Boolean)
@@ -466,7 +468,31 @@ export default function ExpensesView({
                             {exp.dimensions && (
                               <span className="text-[10px] text-[#7A6E6E]">{exp.dimensions}</span>
                             )}
+                            {exp.stockItem && (
+                              <span
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-[#F5EFE6] text-[#423A3A] border border-[#E8DDCF]"
+                                title={
+                                  exp.appliedToStock
+                                    ? 'Linked to Stock Ledger (adds to Physical In Hand when Delivered)'
+                                    : 'Linked to Stock Ledger (tracks Incoming while Shipped/Ordered)'
+                                }
+                              >
+                                Stock: {exp.stockItem}
+                                {typeof exp.stockQtyReceived === 'number' &&
+                                exp.stockQtyReceived > 0
+                                  ? ` (${exp.stockQtyReceived}u)`
+                                  : ''}
+                              </span>
+                            )}
                           </div>
+                          {(exp.notes || exp.contactDetails) && (
+                            <div
+                              className="text-[10px] text-[#7A6E6E] mt-1 max-w-[260px] truncate"
+                              title={exp.notes || exp.contactDetails}
+                            >
+                              Note: {exp.notes || exp.contactDetails}
+                            </div>
+                          )}
                         </td>
 
                         {/* Platform & Payment */}
@@ -535,7 +561,7 @@ export default function ExpensesView({
                                   <span className="text-[#7A6E6E]"> ({metrics.daysTaken}d)</span>
                                 )}
                               </div>
-                              {metrics.delayDays !== null && (
+                              {metrics.delayDays !== null ? (
                                 <span
                                   className={`inline-block text-[10px] px-1.5 py-0.5 rounded font-medium mt-0.5 ${
                                     metrics.isLate
@@ -551,6 +577,12 @@ export default function ExpensesView({
                                     ? `${Math.abs(metrics.delayDays)}d Early`
                                     : 'On time'}
                                 </span>
+                              ) : (
+                                exp.expectedDelivery && (
+                                  <div className="text-[10px] text-[#7A6E6E] mt-0.5">
+                                    Exp: {exp.expectedDelivery}
+                                  </div>
+                                )
                               )}
                             </div>
                           )}

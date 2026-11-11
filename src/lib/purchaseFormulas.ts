@@ -45,10 +45,10 @@ export function diffCalendarDays(startYmd?: string, endYmd?: string): number | n
 export function computePurchaseRowMetrics(exp: Expense): PurchaseRowMetrics {
   const hasLinePricing =
     typeof exp.qty === 'number' &&
-    exp.qty > 0 &&
+    exp.qty >= 0 &&
     typeof exp.unitPrice === 'number';
 
-  const qty = exp.qty && exp.qty > 0 ? exp.qty : 1;
+  const qty = typeof exp.qty === 'number' && exp.qty >= 0 ? exp.qty : 1;
   const piecesPerPack = exp.piecesPerPack && exp.piecesPerPack > 0 ? exp.piecesPerPack : 1;
   const unitPrice = hasLinePricing ? (exp.unitPrice ?? 0) : round2(exp.amount);
   const shipping = round2(exp.shipping ?? 0);
