@@ -182,7 +182,7 @@ export default function Home() {
       const savedExpenses = localStorage.getItem('vedh_expenses');
       const seeded14290 = readVersionFlag('vedh_luxury14290_seeded') === '1';
       const seeded14507 = readVersionFlag('vedh_luxury14507_seeded') === '1';
-      const seeded14901Media = readVersionFlag('vedh_luxury14901_media_seeded') === '1';
+      const seeded14901Media = readVersionFlag('vedh_luxury14901_media_seeded') === '2';
       const incrementalOrderSeeds: Array<{
         flagKey: string;
         alreadySeeded: boolean;
@@ -229,14 +229,26 @@ export default function Home() {
         }
 
         if (!seeded14901Media) {
-          const seed14901ById = new Map(
-            initialExpenses
-              .filter((e) => e.id === 'pur-087' || e.id === 'pur-088' || e.id === 'pur-089')
-              .map((e) => [e.id, e])
+          const seeds14901 = initialExpenses.filter(
+            (e) => e.id === 'pur-087' || e.id === 'pur-088' || e.id === 'pur-089'
           );
+          const seed14901ById = new Map(seeds14901.map((e) => [e.id, e]));
+          let hasAny14901 = false;
+
           loadedExpenses = loadedExpenses.map((exp) => {
-            const src = seed14901ById.get(exp.id);
-            if (!src) return exp;
+            const byId = seed14901ById.get(exp.id);
+            const byOrderAndTitle =
+              !byId && normalizeOrderNumberKey(exp.orderId) === '14901'
+                ? seeds14901.find((s) =>
+                    exp.title.toLowerCase().includes(s.title.toLowerCase().slice(0, 10))
+                  )
+                : undefined;
+            const src = byId || byOrderAndTitle;
+            if (!src) {
+              if (normalizeOrderNumberKey(exp.orderId) === '14901') hasAny14901 = true;
+              return exp;
+            }
+            hasAny14901 = true;
             const next = { ...exp };
             if (!next.receiptMediaId && !next.receiptUrl && src.receiptUrl) {
               next.receiptFile = src.receiptFile;
@@ -251,7 +263,21 @@ export default function Home() {
             }
             return next;
           });
-          writeVersionFlag('vedh_luxury14901_media_seeded', '1');
+
+          if (!hasAny14901 && seeds14901.length > 0) {
+            const insertIdx = loadedExpenses.findIndex((e) => (e.date || '') < '2026-10-28');
+            loadedExpenses =
+              insertIdx === -1
+                ? [...loadedExpenses, ...seeds14901]
+                : [
+                    ...loadedExpenses.slice(0, insertIdx),
+                    ...seeds14901,
+                    ...loadedExpenses.slice(insertIdx),
+                  ];
+            modifiedExpenses = true;
+          }
+
+          writeVersionFlag('vedh_luxury14901_media_seeded', '2');
         }
 
         if (modifiedExpenses) {
@@ -263,7 +289,7 @@ export default function Home() {
         writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
         writeVersionFlag('vedh_luxury14290_seeded', '1');
         writeVersionFlag('vedh_luxury14507_seeded', '1');
-        writeVersionFlag('vedh_luxury14901_media_seeded', '1');
+        writeVersionFlag('vedh_luxury14901_media_seeded', '2');
         localStorage.setItem('vedh_suppliers', JSON.stringify(initialSuppliers));
         setExpenses(initialExpenses);
         setSuppliers(initialSuppliers);
@@ -927,7 +953,7 @@ export default function Home() {
     writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
     writeVersionFlag('vedh_luxury14290_seeded', '1');
     writeVersionFlag('vedh_luxury14507_seeded', '1');
-    writeVersionFlag('vedh_luxury14901_media_seeded', '1');
+    writeVersionFlag('vedh_luxury14901_media_seeded', '2');
     addLog('Expense', 'Reloaded cleaned Purchase Sheet defaults');
     showToast('Reloaded default Purchase Sheet');
   };

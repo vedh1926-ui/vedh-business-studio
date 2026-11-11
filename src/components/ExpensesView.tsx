@@ -172,7 +172,21 @@ export default function ExpensesView({
           .join(' ')
           .toLowerCase();
 
-        return haystack.includes(q);
+        if (haystack.includes(q)) return true;
+
+        const normalizedQueryOrder = normalizeOrderNumberKey(q);
+        const rowOrderKey = normalizeOrderNumberKey(exp.orderId);
+        if (
+          normalizedQueryOrder.length >= 3 &&
+          /\d/.test(normalizedQueryOrder) &&
+          rowOrderKey &&
+          rowOrderKey.includes(normalizedQueryOrder)
+        ) {
+          return true;
+        }
+
+        const tokens = q.split(/\s+/).filter(Boolean);
+        return tokens.length > 1 && tokens.every((tok) => haystack.includes(tok));
       });
   }, [expenses, search, platformFilter, categoryFilter, statusFilter, quickPreset]);
 
@@ -718,7 +732,7 @@ export default function ExpensesView({
                           <div className="font-semibold text-[#2C181B]">{exp.date}</div>
                           {exp.orderId && (
                             <div
-                              className="text-[10px] font-mono text-[#7A6E6E] max-w-[140px] truncate"
+                              className="text-[10px] font-mono text-[#7A6E6E] max-w-[185px] truncate"
                               title={exp.orderId}
                             >
                               {exp.orderId}
@@ -726,7 +740,7 @@ export default function ExpensesView({
                           )}
                           {exp.invoiceNo && (
                             <div
-                              className="text-[10px] text-[#8F243C] max-w-[140px] truncate"
+                              className="text-[10px] text-[#8F243C] max-w-[185px] truncate"
                               title={exp.invoiceNo}
                             >
                               {exp.invoiceNo}
