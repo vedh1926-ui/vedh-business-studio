@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Expense } from '@/lib/types';
 import { formatINR } from '@/lib/utils';
 import {
@@ -10,6 +10,18 @@ import {
   computeCategorySpend,
   exportPurchasesToCsv,
 } from '@/lib/purchaseFormulas';
+import {
+  resolveEffectiveReceipt,
+  normalizeOrderNumberKey,
+  savePurchaseMedia,
+} from '@/lib/purchaseMediaStore';
+import {
+  PurchaseAttachmentPreviewModal,
+  FolderMediaUploadModal,
+  AttachmentPreviewTarget,
+  PurchaseMediaUpdateItem,
+  clearStoredMediaIfUnused,
+} from './PurchaseMediaModals';
 import {
   Plus,
   Search,
@@ -22,6 +34,7 @@ import {
   FileText,
   Image as ImageIcon,
   RotateCcw,
+  FolderOpen,
 } from 'lucide-react';
 
 interface ExpensesViewProps {
@@ -33,6 +46,7 @@ interface ExpensesViewProps {
   onEditExpense: (expense: Expense) => void;
   onDeleteExpense: (id: string) => void;
   onUpdatePurchaseStatus?: (id: string, purchaseStatus: string) => void;
+  onAttachPurchaseMedia?: (updates: PurchaseMediaUpdateItem[], summaryMsg?: string) => void;
   onResetSheetData?: () => void;
 }
 
@@ -48,6 +62,7 @@ export default function ExpensesView({
   onEditExpense,
   onDeleteExpense,
   onUpdatePurchaseStatus,
+  onAttachPurchaseMedia,
   onResetSheetData,
 }: ExpensesViewProps) {
   const [subTab, setSubTab] = useState<ExpensesSubTab>('ledger');
@@ -56,6 +71,22 @@ export default function ExpensesView({
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [quickPreset, setQuickPreset] = useState<QuickPreset>('all');
+  const [previewTarget, setPreviewTarget] = useState<AttachmentPreviewTarget | null>(null);
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const quickUploadTargetRef = useRef<{ expenseId: string; kind: 'bill' | 'product' } | null>(null);
+  const quickUploadInputRef = useRef<HTMLInputElement>(null);
+
+  const orderSiblingMap = useMemo(() => {
+    const map = new Map<string, Expense[]>();
+    for (const exp of expenses) {
+      const k = normalizeOrderNumberKey(exp.orderId);
+      if (!k) continue;
+      const list = map.get(k);
+      if (list) list.push(exp);
+      else map.set(k, [exp]);
+    }
+    return map;
+  }, [expenses]);
 
   const overview = useMemo(() => computePurchaseOverview(expenses), [expenses]);
   const platformStats = useMemo(
@@ -132,6 +163,8 @@ export default function ExpensesView({
           exp.invoiceNo,
           exp.dimensions,
           exp.stockItem,
+          exp.receiptFile,
+          exp.imageRef,
           exp.contactDetails,
           exp.notes,
         ]
@@ -173,8 +206,243 @@ export default function ExpensesView({
     setSubTab('ledger');
   };
 
+  const triggerInlineRowUpload = (expenseId: string, kind: 'bill' | 'product') => {
+    quickUploadTargetRef.current = { expenseId, kind };
+    if (quickUploadInputRef.current) {
+      quickUploadInputRef.current.accept = kind === 'bill' ? 'image/*,.pdf' : 'image/*';
+      quickUploadInputRef.current.click();
+    }
+  };
+
+  const handleQuickRowFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const target = quickUploadTargetRef.current;
+    quickUploadTargetRef.current = null;
+    if (!file || !target || !onAttachPurchaseMedia) return;
+
+    const row = expenses.find((item) => item.id === target.expenseId);
+    if (!row) return;
+
+    const stored = await savePurchaseMedia(file, file.name, target.kind);
+    if (target.kind === 'bill') {
+      const orderKey = normalizeOrderNumberKey(row.orderId);
+      const siblings = orderKey ? orderSiblingMap.get(orderKey) || [row] : [row];
+      const updates: PurchaseMediaUpdateItem[] = siblings.map((sib) => ({
+        id: sib.id,
+        receiptFile: file.name,
+        receiptMediaId: stored.id,
+        receiptUrl: undefined,
+      }));
+      onAttachPurchaseMedia(
+        updates,
+        siblings.length > 1
+          ? `Attached bill "${file.name}" to all ${siblings.length} items in ${row.orderId}`
+          : `Attached bill "${file.name}" to ${row.title}`
+      );
+    } else {
+      onAttachPurchaseMedia(
+        [
+          {
+            id: row.id,
+            imageRef: file.name,
+            imageMediaId: stored.id,
+            imageUrl: undefined,
+          },
+        ],
+        `Attached product image "${file.name}" to ${row.title}`
+      );
+    }
+  };
+
+  const handleReplacePreviewFile = async (
+    target: AttachmentPreviewTarget,
+    file: File,
+    applyToOrder: boolean
+  ) => {
+    if (!onAttachPurchaseMedia) return;
+    const stored = await savePurchaseMedia(file, file.name, target.kind);
+    if (target.kind === 'bill') {
+      const orderKey = normalizeOrderNumberKey(target.expense.orderId);
+      const targets =
+        applyToOrder && orderKey
+          ? orderSiblingMap.get(orderKey) || [target.expense]
+          : [target.expense];
+      const updates: PurchaseMediaUpdateItem[] = targets.map((item) => ({
+        id: item.id,
+        receiptFile: file.name,
+        receiptMediaId: stored.id,
+        receiptUrl: undefined,
+      }));
+      onAttachPurchaseMedia(
+        updates,
+        targets.length > 1
+          ? `Updated bill "${file.name}" across ${targets.length} items`
+          : `Updated bill "${file.name}"`
+      );
+      setPreviewTarget({
+        ...target,
+        fileName: file.name,
+        mediaId: stored.id,
+        url: undefined,
+        inheritedFromOrder: false,
+      });
+    } else {
+      onAttachPurchaseMedia(
+        [
+          {
+            id: target.expense.id,
+            imageRef: file.name,
+            imageMediaId: stored.id,
+            imageUrl: undefined,
+          },
+        ],
+        `Updated product image "${file.name}"`
+      );
+      setPreviewTarget({
+        ...target,
+        fileName: file.name,
+        mediaId: stored.id,
+        url: undefined,
+      });
+    }
+  };
+
+  const handleClearPreviewFile = async (target: AttachmentPreviewTarget) => {
+    if (!onAttachPurchaseMedia) return;
+    if (target.kind === 'bill') {
+      await clearStoredMediaIfUnused(target.expense.receiptMediaId, expenses, target.expense.id);
+      onAttachPurchaseMedia(
+        [
+          {
+            id: target.expense.id,
+            receiptFile: undefined,
+            receiptUrl: undefined,
+            receiptMediaId: undefined,
+          },
+        ],
+        `Removed bill link from ${target.expense.title}`
+      );
+    } else {
+      await clearStoredMediaIfUnused(target.expense.imageMediaId, expenses, target.expense.id);
+      onAttachPurchaseMedia(
+        [
+          {
+            id: target.expense.id,
+            imageRef: undefined,
+            imageUrl: undefined,
+            imageMediaId: undefined,
+          },
+        ],
+        `Removed product image from ${target.expense.title}`
+      );
+    }
+  };
+
+  const renderRowDocLinks = (exp: Expense) => {
+    const effectiveBill = resolveEffectiveReceipt(exp, expenses);
+    const hasViewableBill = Boolean(effectiveBill.url || effectiveBill.mediaId);
+    const hasBillRef = Boolean(effectiveBill.fileName || hasViewableBill);
+    const hasViewableImg = Boolean(exp.imageUrl || exp.imageMediaId);
+    const hasImgRef = Boolean(exp.imageRef || hasViewableImg);
+
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[10px]">
+        {hasBillRef ? (
+          <button
+            type="button"
+            onClick={() =>
+              setPreviewTarget({
+                expense: exp,
+                kind: 'bill',
+                fileName: effectiveBill.fileName || 'Purchase_Bill',
+                url: effectiveBill.url,
+                mediaId: effectiveBill.mediaId,
+                inheritedFromOrder: effectiveBill.inheritedFromOrder,
+              })
+            }
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border transition ${
+              hasViewableBill
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 font-semibold'
+                : 'bg-[#FAF6F0] text-[#541523] border-dashed border-[#D9C9B4] hover:bg-[#F2EBE0]'
+            }`}
+            title={
+              hasViewableBill
+                ? `View bill: ${effectiveBill.fileName}${effectiveBill.inheritedFromOrder ? ' (shared via order)' : ''}`
+                : `Bill ref: ${effectiveBill.fileName} (click to view or upload)`
+            }
+          >
+            <FileText size={10} />
+            <span className="max-w-[92px] truncate">
+              {effectiveBill.fileName || 'View Bill'}
+            </span>
+          </button>
+        ) : (
+          onAttachPurchaseMedia && (
+            <button
+              type="button"
+              onClick={() => triggerInlineRowUpload(exp.id, 'bill')}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:border-[#541523] transition"
+              title="Attach bill / invoice for this purchase"
+            >
+              <FileText size={10} />
+              <span>+ Bill</span>
+            </button>
+          )
+        )}
+
+        {hasImgRef ? (
+          <button
+            type="button"
+            onClick={() =>
+              setPreviewTarget({
+                expense: exp,
+                kind: 'product',
+                fileName: exp.imageRef || `${exp.title}_photo`,
+                url: exp.imageUrl,
+                mediaId: exp.imageMediaId,
+              })
+            }
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border transition ${
+              hasViewableImg
+                ? 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100 font-semibold'
+                : 'bg-[#FAF6F0] text-[#541523] border-dashed border-[#D9C9B4] hover:bg-[#F2EBE0]'
+            }`}
+            title={
+              hasViewableImg
+                ? `View product image: ${exp.imageRef}`
+                : `Product image ref: ${exp.imageRef} (click to view or upload)`
+            }
+          >
+            <ImageIcon size={10} />
+            <span className="max-w-[70px] truncate">{exp.imageRef || 'Img'}</span>
+          </button>
+        ) : (
+          onAttachPurchaseMedia && (
+            <button
+              type="button"
+              onClick={() => triggerInlineRowUpload(exp.id, 'product')}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:border-[#541523] transition"
+              title="Upload individual product photo"
+            >
+              <ImageIcon size={10} />
+              <span>+ Img</span>
+            </button>
+          )
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn">
+      <input
+        ref={quickUploadInputRef}
+        type="file"
+        onChange={handleQuickRowFileChange}
+        className="hidden"
+        aria-label="Quick upload bill or product photo for purchase row"
+      />
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-[#E8DDCF] rounded-2xl p-6 shadow-sm">
         <div>
@@ -197,6 +465,14 @@ export default function ExpensesView({
               <span>Reload Sheet</span>
             </button>
           )}
+          <button
+            onClick={() => setShowFolderModal(true)}
+            className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg border border-[#541523]/30 bg-[#FAF6F0] hover:bg-[#F2EBE0] text-[#541523] text-xs font-semibold transition"
+            title="Upload product photos or invoices from a folder or attach one bill to a whole order"
+          >
+            <FolderOpen size={14} />
+            <span>Folder &amp; Bill Upload</span>
+          </button>
           <button
             onClick={handleDownloadCsv}
             className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg border border-[#D9C9B4] bg-white hover:bg-[#FAF6F0] text-[#423A3A] text-xs font-medium transition"
@@ -619,28 +895,7 @@ export default function ExpensesView({
                             </span>
                           )}
 
-                          {(exp.receiptFile || exp.imageRef) && (
-                            <div className="flex items-center space-x-2 mt-1 text-[10px] text-[#7A6E6E]">
-                              {exp.receiptFile && (
-                                <span
-                                  className="inline-flex items-center space-x-0.5"
-                                  title={`Receipt: ${exp.receiptFile}`}
-                                >
-                                  <FileText size={10} />
-                                  <span className="max-w-[70px] truncate">{exp.receiptFile}</span>
-                                </span>
-                              )}
-                              {exp.imageRef && (
-                                <span
-                                  className="inline-flex items-center space-x-0.5"
-                                  title={`Image: ${exp.imageRef}`}
-                                >
-                                  <ImageIcon size={10} />
-                                  <span>Img</span>
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          {renderRowDocLinks(exp)}
                         </td>
 
                         {/* Actions */}
@@ -823,6 +1078,26 @@ export default function ExpensesView({
             ))}
           </div>
         </div>
+      )}
+
+      {previewTarget && (
+        <PurchaseAttachmentPreviewModal
+          target={previewTarget}
+          orderSiblingCount={
+            orderSiblingMap.get(normalizeOrderNumberKey(previewTarget.expense.orderId))?.length || 1
+          }
+          onClose={() => setPreviewTarget(null)}
+          onReplaceFile={handleReplacePreviewFile}
+          onClearFile={handleClearPreviewFile}
+        />
+      )}
+
+      {showFolderModal && onAttachPurchaseMedia && (
+        <FolderMediaUploadModal
+          expenses={expenses}
+          onClose={() => setShowFolderModal(false)}
+          onApplyMediaUpdates={(updates, msg) => onAttachPurchaseMedia(updates, msg)}
+        />
       )}
     </div>
   );

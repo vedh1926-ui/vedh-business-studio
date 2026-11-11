@@ -212,7 +212,11 @@ export interface Expense {
   purchaseStatus?: string; // Driven by Purchase Status master list
   invoiceNo?: string;
   receiptFile?: string;
+  receiptUrl?: string;
+  receiptMediaId?: string;
   imageRef?: string;
+  imageUrl?: string;
+  imageMediaId?: string;
   contactDetails?: string;
   stockItem?: string;
   stockQtyReceived?: number;

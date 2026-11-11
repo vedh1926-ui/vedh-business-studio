@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Expense } from '@/lib/types';
 import { round2, formatINR } from '@/lib/utils';
 import { diffCalendarDays } from '@/lib/purchaseFormulas';
-import { X, Calculator } from 'lucide-react';
+import { getPurchaseMedia, savePurchaseMedia } from '@/lib/purchaseMediaStore';
+import { X, Calculator, FileText, Image as ImageIcon, Upload, Trash2 } from 'lucide-react';
 
 interface NewExpenseModalProps {
   initialExpense?: Expense | null;
@@ -14,7 +15,11 @@ interface NewExpenseModalProps {
   purchaseStatuses?: string[];
   stockItemOptions?: string[];
   onClose: () => void;
-  onSave: (expense: Omit<Expense, 'id'>, existingId?: string) => void;
+  onSave: (
+    expense: Omit<Expense, 'id'>,
+    existingId?: string,
+    options?: { linkBillToOrder?: boolean }
+  ) => void;
 }
 
 export default function NewExpenseModal({
@@ -87,7 +92,74 @@ export default function NewExpenseModal({
   const [supplierName, setSupplierName] = useState(initialExpense?.supplierName || '');
   const [invoiceNo, setInvoiceNo] = useState(initialExpense?.invoiceNo || '');
   const [receiptFile, setReceiptFile] = useState(initialExpense?.receiptFile || '');
+  const [receiptUrl, setReceiptUrl] = useState<string | undefined>(initialExpense?.receiptUrl);
+  const [receiptMediaId, setReceiptMediaId] = useState<string | undefined>(
+    initialExpense?.receiptMediaId
+  );
+  const [pendingBillFile, setPendingBillFile] = useState<File | null>(null);
+  const [billPreviewSrc, setBillPreviewSrc] = useState<string | null>(
+    initialExpense?.receiptUrl || null
+  );
+  const [linkBillToOrder, setLinkBillToOrder] = useState<boolean>(
+    Boolean(initialExpense?.orderId)
+  );
+
   const [imageRef, setImageRef] = useState(initialExpense?.imageRef || '');
+  const [imageUrl, setImageUrl] = useState<string | undefined>(initialExpense?.imageUrl);
+  const [imageMediaId, setImageMediaId] = useState<string | undefined>(
+    initialExpense?.imageMediaId
+  );
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [imagePreviewSrc, setImagePreviewSrc] = useState<string | null>(
+    initialExpense?.imageUrl || null
+  );
+
+  const [savingMedia, setSavingMedia] = useState(false);
+  const billInputRef = useRef<HTMLInputElement>(null);
+  const productImgInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    const urlsToRevoke: string[] = [];
+
+    async function hydratePreviews() {
+      if (!pendingBillFile && initialExpense?.receiptMediaId) {
+        try {
+          const rec = await getPurchaseMedia(initialExpense.receiptMediaId);
+          if (active && rec?.blob) {
+            const url = URL.createObjectURL(rec.blob);
+            urlsToRevoke.push(url);
+            setBillPreviewSrc(url);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (!pendingImageFile && initialExpense?.imageMediaId) {
+        try {
+          const rec = await getPurchaseMedia(initialExpense.imageMediaId);
+          if (active && rec?.blob) {
+            const url = URL.createObjectURL(rec.blob);
+            urlsToRevoke.push(url);
+            setImagePreviewSrc(url);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    hydratePreviews();
+    return () => {
+      active = false;
+      urlsToRevoke.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [
+    initialExpense?.receiptMediaId,
+    initialExpense?.imageMediaId,
+    pendingBillFile,
+    pendingImageFile,
+  ]);
   const [contactDetails, setContactDetails] = useState(
     initialExpense?.contactDetails || ''
   );
@@ -143,45 +215,109 @@ export default function NewExpenseModal({
   const ensureOption = (list: string[], current: string) =>
     current && !list.includes(current) ? [current, ...list] : list;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!pendingBillFile) return;
+    const url = URL.createObjectURL(pendingBillFile);
+    setBillPreviewSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingBillFile]);
+
+  useEffect(() => {
+    if (!pendingImageFile) return;
+    const url = URL.createObjectURL(pendingImageFile);
+    setImagePreviewSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingImageFile]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || savingMedia) return;
 
-    onSave(
-      {
-        orderId: orderId.trim() || undefined,
-        platform: platform.trim(),
-        category,
-        title: title.trim(),
-        dimensions: dimensions.trim() || undefined,
-        qty: liveFormulas.qty,
-        piecesPerPack: liveFormulas.piecesPerPack,
-        unitPrice: liveFormulas.unitPrice,
-        shipping: liveFormulas.shipping,
-        amount: liveFormulas.totalCost,
-        date: date || today,
-        expectedDelivery: expectedDelivery || undefined,
-        actualDelivery: actualDelivery || undefined,
-        supplierName: (supplierName.trim() || platform.trim()) || undefined,
-        paymentMode: paymentMode || 'UPI',
-        purchaseStatus,
-        invoiceNo: invoiceNo.trim() || undefined,
-        receiptFile: receiptFile.trim() || undefined,
-        imageRef: imageRef.trim() || undefined,
-        contactDetails: contactDetails.trim() || undefined,
-        stockItem: stockItem.trim() || undefined,
-        stockQtyReceived: stockQtyStr.trim()
-          ? parseFloat(stockQtyStr) || undefined
-          : stockItem.trim()
-          ? liveFormulas.totalUnits
-          : undefined,
-        appliedToStock: Boolean(stockItem.trim()) && appliedToStock,
-        notes: notes.trim() || undefined,
-      },
-      initialExpense?.id
-    );
+    setSavingMedia(true);
+    try {
+      let nextReceiptFile = receiptFile.trim() || undefined;
+      let nextReceiptUrl = receiptUrl;
+      let nextReceiptMediaId = receiptMediaId;
 
-    onClose();
+      if (pendingBillFile) {
+        const displayName = receiptFile.trim() || pendingBillFile.name;
+        const stored = await savePurchaseMedia(
+          pendingBillFile,
+          displayName,
+          'bill'
+        );
+        nextReceiptFile = displayName;
+        nextReceiptMediaId = stored.id;
+        nextReceiptUrl = undefined;
+      }
+
+      let nextImageRef = imageRef.trim() || undefined;
+      let nextImageUrl = imageUrl;
+      let nextImageMediaId = imageMediaId;
+
+      if (pendingImageFile) {
+        const displayName = imageRef.trim() || pendingImageFile.name;
+        const stored = await savePurchaseMedia(
+          pendingImageFile,
+          displayName,
+          'product',
+          imageMediaId
+        );
+        nextImageRef = displayName;
+        nextImageMediaId = stored.id;
+        nextImageUrl = undefined;
+      }
+
+      const trimmedOrderId = orderId.trim();
+      const shouldLinkOrder = Boolean(
+        linkBillToOrder &&
+          trimmedOrderId &&
+          (nextReceiptFile || nextReceiptUrl || nextReceiptMediaId)
+      );
+
+      onSave(
+        {
+          orderId: trimmedOrderId || undefined,
+          platform: platform.trim(),
+          category,
+          title: title.trim(),
+          dimensions: dimensions.trim() || undefined,
+          qty: liveFormulas.qty,
+          piecesPerPack: liveFormulas.piecesPerPack,
+          unitPrice: liveFormulas.unitPrice,
+          shipping: liveFormulas.shipping,
+          amount: liveFormulas.totalCost,
+          date: date || today,
+          expectedDelivery: expectedDelivery || undefined,
+          actualDelivery: actualDelivery || undefined,
+          supplierName: (supplierName.trim() || platform.trim()) || undefined,
+          paymentMode: paymentMode || 'UPI',
+          purchaseStatus,
+          invoiceNo: invoiceNo.trim() || undefined,
+          receiptFile: nextReceiptFile,
+          receiptUrl: nextReceiptUrl,
+          receiptMediaId: nextReceiptMediaId,
+          imageRef: nextImageRef,
+          imageUrl: nextImageUrl,
+          imageMediaId: nextImageMediaId,
+          contactDetails: contactDetails.trim() || undefined,
+          stockItem: stockItem.trim() || undefined,
+          stockQtyReceived: stockQtyStr.trim()
+            ? parseFloat(stockQtyStr) || undefined
+            : stockItem.trim()
+            ? liveFormulas.totalUnits
+            : undefined,
+          appliedToStock: Boolean(stockItem.trim()) && appliedToStock,
+          notes: notes.trim() || undefined,
+        },
+        initialExpense?.id,
+        { linkBillToOrder: shouldLinkOrder }
+      );
+
+      onClose();
+    } finally {
+      setSavingMedia(false);
+    }
   };
 
   return (
@@ -505,49 +641,178 @@ export default function NewExpenseModal({
             </div>
           </div>
 
-          {/* Row 6: Receipt File, Image Ref, Contact / Notes */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[#423A3A] font-semibold mb-1">
-                Receipt File / Link
-              </label>
-              <input
-                type="text"
-                placeholder="GoldGiftBoxRibbon.pdf"
-                value={receiptFile}
-                onChange={(e) => setReceiptFile(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-              />
+          {/* Row 6: Dual Upload Provisions (1. Purchase Bill / Invoice, 2. Individual Product Image) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Provision 1: Bill / Invoice Upload */}
+            <div className="border border-[#E8DDCF] bg-[#FCF9F4] rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[#423A3A] font-semibold flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-[#541523]" />
+                  <span>1. Bill / Invoice Upload</span>
+                </label>
+                {(receiptFile || billPreviewSrc) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingBillFile(null);
+                      setReceiptFile('');
+                      setReceiptUrl(undefined);
+                      setReceiptMediaId(undefined);
+                      setBillPreviewSrc(null);
+                    }}
+                    className="text-[11px] text-red-700 hover:underline inline-flex items-center gap-0.5"
+                  >
+                    <Trash2 className="w-3 h-3" /> Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  ref={billInputRef}
+                  type="file"
+                  accept="image/*,.pdf"
+                  aria-label="Upload Bill or Invoice file"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    setPendingBillFile(f);
+                    setReceiptFile(f.name);
+                  }}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => billInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#541523] text-white text-[11px] font-semibold hover:bg-[#6E1C30] shrink-0"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {billPreviewSrc ? 'Change Bill' : 'Upload Bill'}
+                </button>
+                <input
+                  type="text"
+                  placeholder="Bill filename or ref"
+                  value={receiptFile}
+                  onChange={(e) => setReceiptFile(e.target.value)}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-[11px] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                />
+              </div>
+
+              {billPreviewSrc && (
+                <div className="flex items-center gap-2 bg-white border border-[#E8DEC9] rounded-lg p-1.5">
+                  {receiptFile.toLowerCase().endsWith('.pdf') ? (
+                    <FileText className="w-6 h-6 text-[#541523] shrink-0" />
+                  ) : (
+                    <img
+                      src={billPreviewSrc}
+                      alt={receiptFile || 'Bill preview'}
+                      className="w-9 h-9 object-cover rounded border border-[#D9C9B4] shrink-0"
+                    />
+                  )}
+                  <span className="text-[11px] text-emerald-700 font-medium truncate">
+                    {pendingBillFile ? `Ready to attach: ${pendingBillFile.name}` : `Attached: ${receiptFile}`}
+                  </span>
+                </div>
+              )}
+
+              {orderId.trim() && (
+                <label className="flex items-center gap-1.5 text-[11px] text-[#541523] cursor-pointer select-none pt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={linkBillToOrder}
+                    onChange={(e) => setLinkBillToOrder(e.target.checked)}
+                    className="accent-[#541523]"
+                  />
+                  <span>Link bill to all items in {orderId.trim()}</span>
+                </label>
+              )}
             </div>
 
-            <div>
-              <label className="block text-[#423A3A] font-semibold mb-1">
-                Image Ref
-              </label>
-              <input
-                type="text"
-                placeholder="ImageKRAFT.jpeg"
-                value={imageRef}
-                onChange={(e) => setImageRef(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-              />
-            </div>
+            {/* Provision 2: Individual Product Image Upload */}
+            <div className="border border-[#E8DDCF] bg-[#FCF9F4] rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[#423A3A] font-semibold flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-[#541523]" />
+                  <span>2. Product Image Upload</span>
+                </label>
+                {(imageRef || imagePreviewSrc) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingImageFile(null);
+                      setImageRef('');
+                      setImageUrl(undefined);
+                      setImageMediaId(undefined);
+                      setImagePreviewSrc(null);
+                    }}
+                    className="text-[11px] text-red-700 hover:underline inline-flex items-center gap-0.5"
+                  >
+                    <Trash2 className="w-3 h-3" /> Clear
+                  </button>
+                )}
+              </div>
 
-            <div>
-              <label className="block text-[#423A3A] font-semibold mb-1">
-                Contact / Notes
-              </label>
-              <input
-                type="text"
-                placeholder="Phone, email or remarks"
-                value={notes || contactDetails}
-                onChange={(e) => {
-                  setNotes(e.target.value);
-                  setContactDetails('');
-                }}
-                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  ref={productImgInputRef}
+                  type="file"
+                  accept="image/*"
+                  aria-label="Upload Individual Product Image"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    setPendingImageFile(f);
+                    setImageRef(f.name);
+                  }}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => productImgInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#541523] bg-white text-[#541523] text-[11px] font-semibold hover:bg-[#541523]/5 shrink-0"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {imagePreviewSrc ? 'Change Photo' : 'Upload Photo'}
+                </button>
+                <input
+                  type="text"
+                  placeholder="Product photo filename"
+                  value={imageRef}
+                  onChange={(e) => setImageRef(e.target.value)}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-[11px] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                />
+              </div>
+
+              {imagePreviewSrc && (
+                <div className="flex items-center gap-2 bg-white border border-[#E8DEC9] rounded-lg p-1.5">
+                  <img
+                    src={imagePreviewSrc}
+                    alt={imageRef || 'Product image preview'}
+                    className="w-9 h-9 object-cover rounded border border-[#D9C9B4] shrink-0"
+                  />
+                  <span className="text-[11px] text-emerald-700 font-medium truncate">
+                    {pendingImageFile ? `Ready to attach: ${pendingImageFile.name}` : `Attached: ${imageRef}`}
+                  </span>
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* Row 7: Contact / Notes */}
+          <div>
+            <label className="block text-[#423A3A] font-semibold mb-1">
+              Contact / Notes
+            </label>
+            <input
+              type="text"
+              placeholder="Phone, email or remarks"
+              value={notes || contactDetails}
+              onChange={(e) => {
+                setNotes(e.target.value);
+                setContactDetails('');
+              }}
+              className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+            />
           </div>
 
           {/* Stock Ledger Link (Optional: Incoming vs Received Post-Count) */}
@@ -614,9 +879,14 @@ export default function NewExpenseModal({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-[#541523] text-white rounded-lg font-semibold hover:bg-[#6E1C30]"
+              disabled={savingMedia}
+              className="px-5 py-2 bg-[#541523] text-white rounded-lg font-semibold hover:bg-[#6E1C30] disabled:opacity-60"
             >
-              {isEditing ? 'Update Purchase' : 'Save Purchase'}
+              {savingMedia
+                ? 'Saving Files...'
+                : isEditing
+                ? 'Update Purchase'
+                : 'Save Purchase'}
             </button>
           </div>
         </form>

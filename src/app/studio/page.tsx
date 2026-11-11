@@ -62,6 +62,9 @@ import {
   normalizeNameKey,
 } from '@/lib/oprFormulas';
 import { round2 } from '@/lib/utils';
+import { luxuryDecoOrder14290Expenses } from '@/lib/purchaseSheetSeed';
+import { normalizeOrderNumberKey } from '@/lib/purchaseMediaStore';
+import { PurchaseMediaUpdateItem } from '@/components/PurchaseMediaModals';
 import {
   EXPENSES_DATA_VERSION,
   OPR_DATA_VERSION,
@@ -174,13 +177,35 @@ export default function Home() {
       // Upgrade expenses/suppliers to v4.0_clean with Shipped incoming stock links
       const sheetVer = readVersionFlag('vedh_expenses_version');
       const savedExpenses = localStorage.getItem('vedh_expenses');
+      const seeded14290 = readVersionFlag('vedh_luxury14290_seeded') === '1';
       if (savedExpenses && sheetVer === EXPENSES_DATA_VERSION) {
         // Ensure plain string flag (fixes legacy JSON-quoted '"4.0_clean"' values)
         writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
-        setExpenses(JSON.parse(savedExpenses));
+        let loadedExpenses: Expense[] = JSON.parse(savedExpenses);
+        if (!seeded14290) {
+          const existingIds = new Set(loadedExpenses.map((e) => e.id));
+          const missing14290 = luxuryDecoOrder14290Expenses.filter(
+            (item) => !existingIds.has(item.id)
+          );
+          if (missing14290.length > 0) {
+            const insertIdx = loadedExpenses.findIndex((e) => (e.date || '') < '2026-10-01');
+            loadedExpenses =
+              insertIdx === -1
+                ? [...loadedExpenses, ...missing14290]
+                : [
+                    ...loadedExpenses.slice(0, insertIdx),
+                    ...missing14290,
+                    ...loadedExpenses.slice(insertIdx),
+                  ];
+            persistStudioKey('vedh_expenses', loadedExpenses);
+          }
+          writeVersionFlag('vedh_luxury14290_seeded', '1');
+        }
+        setExpenses(loadedExpenses);
       } else {
         localStorage.setItem('vedh_expenses', JSON.stringify(initialExpenses));
         writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
+        writeVersionFlag('vedh_luxury14290_seeded', '1');
         localStorage.setItem('vedh_suppliers', JSON.stringify(initialSuppliers));
         setExpenses(initialExpenses);
         setSuppliers(initialSuppliers);
@@ -188,7 +213,22 @@ export default function Home() {
 
       const savedSuppliers = localStorage.getItem('vedh_suppliers');
       if (savedSuppliers && sheetVer === EXPENSES_DATA_VERSION) {
-        setSuppliers(JSON.parse(savedSuppliers));
+        let loadedSuppliers: Supplier[] = JSON.parse(savedSuppliers);
+        if (!seeded14290) {
+          const luxurySeed = initialSuppliers.find((s) => s.id === 'sup-luxurydeco');
+          if (luxurySeed) {
+            let changed = false;
+            loadedSuppliers = loadedSuppliers.map((sup) => {
+              if (sup.id === 'sup-luxurydeco' && sup.totalPaid === 334) {
+                changed = true;
+                return luxurySeed;
+              }
+              return sup;
+            });
+            if (changed) persistStudioKey('vedh_suppliers', loadedSuppliers);
+          }
+        }
+        setSuppliers(loadedSuppliers);
       }
 
       const savedMasterLists = localStorage.getItem('vedh_master_lists');
@@ -706,11 +746,36 @@ export default function Home() {
   };
 
   // Expenses / Purchases Handlers
-  const handleSaveExpense = (expData: Omit<Expense, 'id'>, existingId?: string) => {
+  const handleSaveExpense = (
+    expData: Omit<Expense, 'id'>,
+    existingId?: string,
+    options?: { linkBillToOrder?: boolean }
+  ) => {
+    const orderKey = options?.linkBillToOrder
+      ? normalizeOrderNumberKey(expData.orderId)
+      : '';
+    const hasBillPayload = Boolean(
+      expData.receiptFile || expData.receiptUrl || expData.receiptMediaId
+    );
+    const applyOrderBillSync = (rows: Expense[], savedRowId: string) => {
+      if (!orderKey || !hasBillPayload) return rows;
+      return rows.map((row) =>
+        row.id !== savedRowId && normalizeOrderNumberKey(row.orderId) === orderKey
+          ? {
+              ...row,
+              receiptFile: expData.receiptFile,
+              receiptUrl: expData.receiptUrl,
+              receiptMediaId: expData.receiptMediaId,
+            }
+          : row
+      );
+    };
+
     if (existingId) {
-      const updated = expenses.map((e) =>
+      const baseUpdated = expenses.map((e) =>
         e.id === existingId ? { ...expData, id: existingId } : e
       );
+      const updated = applyOrderBillSync(baseUpdated, existingId);
       setExpenses(updated);
       persist('vedh_expenses', updated);
       writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
@@ -723,7 +788,7 @@ export default function Home() {
       ...expData,
       id: `pur-${Date.now()}`,
     };
-    const updated = [newExpense, ...expenses];
+    const updated = applyOrderBillSync([newExpense, ...expenses], newExpense.id);
     setExpenses(updated);
     persist('vedh_expenses', updated);
     writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
@@ -732,6 +797,46 @@ export default function Home() {
       `Purchase recorded (${newExpense.platform || 'Direct'}): ${newExpense.title} (₹${newExpense.amount})`
     );
     showToast(`Purchase recorded: ${newExpense.title}`);
+  };
+
+  const handleAttachPurchaseMedia = (
+    updates: PurchaseMediaUpdateItem[],
+    summaryMsg?: string
+  ) => {
+    if (updates.length === 0) return;
+    const byId = new Map(updates.map((u) => [u.id, u]));
+    const updated = expenses.map((exp) => {
+      const patch = byId.get(exp.id);
+      if (!patch) return exp;
+      const hasBillPatch =
+        'receiptFile' in patch || 'receiptUrl' in patch || 'receiptMediaId' in patch;
+      const hasImagePatch =
+        'imageRef' in patch || 'imageUrl' in patch || 'imageMediaId' in patch;
+      return {
+        ...exp,
+        ...(hasBillPatch
+          ? {
+              receiptFile: patch.receiptFile,
+              receiptUrl: patch.receiptUrl,
+              receiptMediaId: patch.receiptMediaId,
+            }
+          : {}),
+        ...(hasImagePatch
+          ? {
+              imageRef: patch.imageRef,
+              imageUrl: patch.imageUrl,
+              imageMediaId: patch.imageMediaId,
+            }
+          : {}),
+      };
+    });
+
+    setExpenses(updated);
+    persist('vedh_expenses', updated);
+    writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
+    const logMsg = summaryMsg || `Updated attachments on ${updates.length} purchase(s)`;
+    addLog('Expense', logMsg);
+    showToast(logMsg);
   };
 
   const handleUpdateExpenseStatus = (id: string, purchaseStatus: string) => {
@@ -762,6 +867,7 @@ export default function Home() {
     persist('vedh_expenses', initialExpenses);
     persist('vedh_suppliers', initialSuppliers);
     writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
+    writeVersionFlag('vedh_luxury14290_seeded', '1');
     addLog('Expense', 'Reloaded cleaned Purchase Sheet defaults');
     showToast('Reloaded default Purchase Sheet');
   };
@@ -1121,6 +1227,7 @@ export default function Home() {
               }}
               onDeleteExpense={handleDeleteExpense}
               onUpdatePurchaseStatus={handleUpdateExpenseStatus}
+              onAttachPurchaseMedia={handleAttachPurchaseMedia}
               onResetSheetData={handleResetExpenseSheet}
             />
           )}
