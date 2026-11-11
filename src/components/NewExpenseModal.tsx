@@ -5,16 +5,26 @@ import { Expense } from '@/lib/types';
 import { X } from 'lucide-react';
 
 interface NewExpenseModalProps {
+  categories?: string[];
+  paymentModes?: string[];
+  purchaseStatuses?: string[];
   onClose: () => void;
   onSave: (expense: Omit<Expense, 'id'>) => void;
 }
 
-export default function NewExpenseModal({ onClose, onSave }: NewExpenseModalProps) {
+export default function NewExpenseModal({
+  categories = ['Wax / Candles', 'Packaging', 'Resin Supplies', 'Fabric', 'Tools', 'Other'],
+  paymentModes = ['UPI', 'Cash', 'Card', 'Net Banking', 'Cash on Delivery', 'Other'],
+  purchaseStatuses = ['Ordered', 'Shipped', 'Delayed', 'Delivered', 'Self Pick-Up', 'Rapido', 'Replaced', 'Returned', 'Refund Pending', 'Cancelled'],
+  onClose,
+  onSave,
+}: NewExpenseModalProps) {
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<Expense['category']>('Raw Materials');
+  const [category, setCategory] = useState<Expense['category']>(categories[0] || 'Wax / Candles');
   const [amount, setAmount] = useState('');
   const [supplierName, setSupplierName] = useState('');
-  const [paymentMode, setPaymentMode] = useState<Expense['paymentMode']>('UPI');
+  const [paymentMode, setPaymentMode] = useState<Expense['paymentMode']>(paymentModes[0] || 'UPI');
+  const [purchaseStatus, setPurchaseStatus] = useState<string>(purchaseStatuses[0] || 'Ordered');
   const [notes, setNotes] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -28,6 +38,7 @@ export default function NewExpenseModal({ onClose, onSave }: NewExpenseModalProp
       date: new Date().toISOString().split('T')[0],
       supplierName,
       paymentMode,
+      purchaseStatus,
       notes,
     });
 
@@ -65,22 +76,42 @@ export default function NewExpenseModal({ onClose, onSave }: NewExpenseModalProp
             />
           </div>
 
-          <div>
-            <label className="block text-[#423A3A] font-semibold mb-1">
-              Category
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value as any)}
-              className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-            >
-              <option value="Raw Materials">Raw Materials (Wax, Resin, Scents)</option>
-              <option value="Packaging">Packaging &amp; Boxes</option>
-              <option value="Courier / Logistics">Courier / Shipping / Logistics</option>
-              <option value="Tools & Molds">Tools, Silicone Molds &amp; Utensils</option>
-              <option value="Marketing">Marketing &amp; Branding</option>
-              <option value="Other">Other Operational</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                aria-label="Expense category"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Purchase Status
+              </label>
+              <select
+                value={purchaseStatus}
+                onChange={(e) => setPurchaseStatus(e.target.value)}
+                aria-label="Purchase status"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {purchaseStatuses.map((ps) => (
+                  <option key={ps} value={ps}>
+                    {ps}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -104,13 +135,15 @@ export default function NewExpenseModal({ onClose, onSave }: NewExpenseModalProp
               </label>
               <select
                 value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value as any)}
-                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                onChange={(e) => setPaymentMode(e.target.value)}
+                aria-label="Expense payment mode"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
               >
-                <option value="UPI">UPI / GPay / PhonePe</option>
-                <option value="Bank Transfer">Bank Transfer / NEFT</option>
-                <option value="Cash">Cash in Hand</option>
-                <option value="Card">Card</option>
+                {paymentModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

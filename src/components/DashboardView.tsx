@@ -32,7 +32,9 @@ export default function DashboardView({
   const grossPosition = totalReceived - totalExpenses;
 
   // Active orders in motion
-  const ordersInMotion = orders.filter((o) => o.status === 'Production' || o.status === 'Ready' || o.status === 'Inquiry');
+  const ordersInMotion = orders.filter(
+    (o) => o.status !== 'Delivered' && o.status !== 'Cancelled'
+  );
 
   // Low stock items
   const lowStockItems = inventory.filter((item) => item.stock <= item.reorderLevel);
@@ -158,10 +160,12 @@ export default function DashboardView({
 
                     <span
                       className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                        order.status === 'Production'
+                        order.status === 'In Production' || order.status === 'Production'
                           ? 'bg-amber-100 text-amber-800 border border-amber-200'
                           : order.status === 'Ready'
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : order.status === 'New'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
                           : 'bg-stone-100 text-stone-700'
                       }`}
                     >

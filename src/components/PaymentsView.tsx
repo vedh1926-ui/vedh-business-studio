@@ -7,15 +7,20 @@ import { Plus, CreditCard, CheckCircle2 } from 'lucide-react';
 
 interface PaymentsViewProps {
   payments: Payment[];
+  paymentModes?: string[];
   onAddPayment: (payment: Omit<Payment, 'id'>) => void;
 }
 
-export default function PaymentsView({ payments, onAddPayment }: PaymentsViewProps) {
+export default function PaymentsView({
+  payments,
+  paymentModes = ['UPI', 'Cash', 'Card', 'Net Banking', 'Cash on Delivery', 'Other'],
+  onAddPayment,
+}: PaymentsViewProps) {
   const [showModal, setShowModal] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<Payment['method']>('UPI / GPay / PhonePe');
+  const [method, setMethod] = useState<Payment['method']>(paymentModes[0] || 'UPI');
 
   const totalPayments = payments.reduce((acc, curr) => acc + curr.amount, 0);
 
@@ -172,13 +177,15 @@ export default function PaymentsView({ payments, onAddPayment }: PaymentsViewPro
                 </label>
                 <select
                   value={method}
-                  onChange={(e) => setMethod(e.target.value as any)}
-                  className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                  onChange={(e) => setMethod(e.target.value)}
+                  aria-label="Payment method"
+                  className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
                 >
-                  <option value="UPI / GPay / PhonePe">UPI / GPay / PhonePe</option>
-                  <option value="Bank Transfer">Bank Transfer / IMPS</option>
-                  <option value="Cash">Cash in Hand</option>
-                  <option value="Card">Card</option>
+                  {paymentModes.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {mode}
+                    </option>
+                  ))}
                 </select>
               </div>
 

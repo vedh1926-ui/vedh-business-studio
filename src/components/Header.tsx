@@ -30,6 +30,7 @@ export default function Header({
     suppliers: 'SUPPLIERS',
     payments: 'PAYMENTS',
     reports: 'REPORTS & ANALYTICS',
+    'master-lists': 'MASTER LISTS & PARAMETERS',
     settings: 'SETTINGS',
     history: 'HISTORY & LOGS',
   };
@@ -51,7 +52,11 @@ export default function Header({
             VEDH / {breadcrumbLabels[activeTab]}
           </div>
           <h1 className="text-2xl font-serif font-bold text-[#2C181B] capitalize">
-            {activeTab === 'invoices' ? 'Invoices & Billing' : activeTab}
+            {activeTab === 'invoices'
+              ? 'Invoices & Billing'
+              : activeTab === 'master-lists'
+              ? 'Master Lists'
+              : activeTab}
           </h1>
         </div>
       </div>

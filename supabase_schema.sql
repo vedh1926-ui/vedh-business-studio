@@ -113,8 +113,19 @@ create table if not exists public.expenses (
 -- 9. AUDIT HISTORY LOG TABLE
 create table if not exists public.audit_logs (
     id uuid default uuid_generate_v4() primary key,
-    category text not null check (category in ('All', 'Product', 'Order', 'Expense', 'Payment', 'Customer')),
+    category text not null check (category in ('All', 'Product', 'Order', 'Expense', 'Payment', 'Customer', 'Master List')),
     description text not null,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 10. MASTER LISTS & PARAMETERS TABLE
+create table if not exists public.master_lists (
+    id text primary key,
+    list_key text not null unique,
+    name text not null,
+    description text,
+    used_in text[] default '{}',
+    items jsonb default '[]'::jsonb not null,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -128,6 +139,7 @@ alter table public.order_items enable row level security;
 alter table public.payments enable row level security;
 alter table public.expenses enable row level security;
 alter table public.audit_logs enable row level security;
+alter table public.master_lists enable row level security;
 
 -- Default open access for authenticated studio users:
 create policy "Allow authenticated full access to products" on public.products for all using (auth.role() = 'authenticated');
@@ -138,3 +150,4 @@ create policy "Allow authenticated full access to payments" on public.payments f
 create policy "Allow authenticated full access to expenses" on public.expenses for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to suppliers" on public.suppliers for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to audit_logs" on public.audit_logs for all using (auth.role() = 'authenticated');
+create policy "Allow authenticated full access to master_lists" on public.master_lists for all using (auth.role() = 'authenticated');

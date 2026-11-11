@@ -7,12 +7,16 @@ import { X, Plus, Trash2 } from 'lucide-react';
 
 interface NewOrderModalProps {
   products: Product[];
+  paymentModes?: string[];
+  orderStatuses?: string[];
   onClose: () => void;
   onSave: (order: Omit<Order, 'id'>) => void;
 }
 
 export default function NewOrderModal({
   products,
+  paymentModes = ['UPI', 'Cash', 'Card', 'Net Banking', 'Cash on Delivery', 'Other'],
+  orderStatuses = ['New', 'In Production', 'Ready', 'Delivered', 'Cancelled'],
   onClose,
   onSave,
 }: NewOrderModalProps) {
@@ -23,6 +27,8 @@ export default function NewOrderModal({
   const [targetDate, setTargetDate] = useState('');
   const [notes, setNotes] = useState('');
   const [advancePaid, setAdvancePaid] = useState<number>(0);
+  const [paymentMode, setPaymentMode] = useState<string>(paymentModes[0] || 'UPI');
+  const [status, setStatus] = useState<string>(orderStatuses[0] || 'New');
 
   // Line items state
   const [items, setItems] = useState<OrderItem[]>([
@@ -92,7 +98,8 @@ export default function NewOrderModal({
       totalAmount,
       advancePaid,
       balanceDue,
-      status: 'Production',
+      status,
+      paymentMode,
       createdAt: new Date().toISOString().split('T')[0],
       targetDeliveryDate: targetDate,
       notes,
@@ -236,8 +243,8 @@ export default function NewOrderModal({
             </div>
           </div>
 
-          {/* Payment breakdown */}
-          <div className="pt-2 border-t border-[#F2EBE0] grid grid-cols-2 gap-4">
+          {/* Status & Payment breakdown */}
+          <div className="pt-2 border-t border-[#F2EBE0] grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[#423A3A] font-semibold mb-1">
                 Advance Paid (₹)
@@ -251,13 +258,49 @@ export default function NewOrderModal({
               />
             </div>
 
-            <div className="text-right flex flex-col justify-end">
-              <div className="text-xs text-[#7A6E6E]">
-                Total: <span className="font-serif font-bold text-[#2C181B] text-sm">{formatINR(totalAmount)}</span>
-              </div>
-              <div className="text-xs text-[#8F243C] font-semibold">
-                Balance Due: {formatINR(balanceDue)}
-              </div>
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Payment Mode
+              </label>
+              <select
+                value={paymentMode}
+                onChange={(e) => setPaymentMode(e.target.value)}
+                aria-label="Payment mode"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {paymentModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Order Status
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                aria-label="Initial order status"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {orderStatuses.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="text-right flex items-center justify-end space-x-4">
+            <div className="text-xs text-[#7A6E6E]">
+              Total: <span className="font-serif font-bold text-[#2C181B] text-sm">{formatINR(totalAmount)}</span>
+            </div>
+            <div className="text-xs text-[#8F243C] font-semibold">
+              Balance Due: {formatINR(balanceDue)}
             </div>
           </div>
 

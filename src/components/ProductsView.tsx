@@ -79,7 +79,8 @@ export default function ProductsView({
                   </div>
 
                   <div className="text-xs text-[#635B5B] min-w-[70px]">
-                    <span className="font-semibold text-[#2C181B]">{product.stock}</span> in stock
+                    <span className="font-semibold text-[#2C181B]">{product.stock}</span>{' '}
+                    {product.unit ? `${product.unit} in stock` : 'in stock'}
                   </div>
 
                   <span

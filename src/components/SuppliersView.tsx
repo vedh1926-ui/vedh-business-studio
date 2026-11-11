@@ -7,18 +7,20 @@ import { Plus, Truck, Phone, Mail, MapPin, Sparkles } from 'lucide-react';
 
 interface SuppliersViewProps {
   suppliers: Supplier[];
+  categories?: string[];
   onAddSupplier: (supplier: Omit<Supplier, 'id' | 'totalOrders' | 'totalPaid'>) => void;
   onDeleteSupplier: (id: string) => void;
 }
 
 export default function SuppliersView({
   suppliers,
+  categories = ['Wax / Candles', 'Resin Supplies', 'Packaging', 'Fabric', 'Other'],
   onAddSupplier,
   onDeleteSupplier,
 }: SuppliersViewProps) {
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<Supplier['category']>('Wax & Fragrance');
+  const [category, setCategory] = useState<Supplier['category']>(categories[0] || 'Wax / Candles');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [city, setCity] = useState('');
@@ -156,14 +158,15 @@ export default function SuppliersView({
                 </label>
                 <select
                   value={category}
-                  onChange={(e) => setCategory(e.target.value as any)}
-                  className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                  onChange={(e) => setCategory(e.target.value)}
+                  aria-label="Supplier category"
+                  className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
                 >
-                  <option value="Wax & Fragrance">Wax &amp; Fragrance</option>
-                  <option value="Resin & Hardener">Resin &amp; Hardener</option>
-                  <option value="Gift Boxes & Packaging">Gift Boxes &amp; Packaging</option>
-                  <option value="Embroidery Materials">Embroidery Materials</option>
-                  <option value="General">General Workshop Supplies</option>
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
                 </select>
               </div>
 

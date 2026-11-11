@@ -16,6 +16,7 @@ import {
   BarChart3,
   Settings,
   History,
+  ListChecks,
   Cloud,
   CheckCircle2,
   AlertCircle,
@@ -43,6 +44,7 @@ export default function Sidebar({ activeTab, setActiveTab, isOpen, setIsOpen }: 
     { id: 'suppliers', label: 'Suppliers', icon: <Truck size={18} /> },
     { id: 'payments', label: 'Payments', icon: <CreditCard size={18} /> },
     { id: 'reports', label: 'Reports', icon: <BarChart3 size={18} /> },
+    { id: 'master-lists', label: 'Master Lists', icon: <ListChecks size={18} /> },
     { id: 'settings', label: 'Settings', icon: <Settings size={18} /> },
     { id: 'history', label: 'History', icon: <History size={18} /> },
   ];

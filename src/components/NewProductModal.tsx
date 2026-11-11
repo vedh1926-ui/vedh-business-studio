@@ -5,13 +5,21 @@ import { Product } from '@/lib/types';
 import { X } from 'lucide-react';
 
 interface NewProductModalProps {
+  categories?: string[];
+  units?: string[];
   onClose: () => void;
   onSave: (product: Omit<Product, 'id' | 'status'>) => void;
 }
 
-export default function NewProductModal({ onClose, onSave }: NewProductModalProps) {
+export default function NewProductModal({
+  categories = ['Wax / Candles', 'Resin Supplies', 'Fabric', 'Packaging', 'Art Supplies', 'Other'],
+  units = ['pcs', 'set', 'pack', 'g', 'kg', 'ml', 'm', 'roll', 'inch', 'cm'],
+  onClose,
+  onSave,
+}: NewProductModalProps) {
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<Product['category']>('Candles');
+  const [category, setCategory] = useState<Product['category']>(categories[0] || 'Wax / Candles');
+  const [unit, setUnit] = useState<string>(units[0] || 'pcs');
   const [price, setPrice] = useState('');
   const [estimatedCost, setEstimatedCost] = useState('');
   const [stock, setStock] = useState('10');
@@ -25,6 +33,7 @@ export default function NewProductModal({ onClose, onSave }: NewProductModalProp
     onSave({
       name,
       category,
+      unit,
       price: parseFloat(price) || 0,
       estimatedCost: parseFloat(estimatedCost) || 0,
       stock: parseInt(stock) || 0,
@@ -66,21 +75,42 @@ export default function NewProductModal({ onClose, onSave }: NewProductModalProp
             />
           </div>
 
-          <div>
-            <label className="block text-[#423A3A] font-semibold mb-1">
-              Category
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value as any)}
-              className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-            >
-              <option value="Candles">Handcrafted Candles</option>
-              <option value="Resin Coasters">Resin Art &amp; Coasters</option>
-              <option value="Embroidery">Traditional Embroidery</option>
-              <option value="Gift Hampers">Festive Gift Hampers &amp; Return Gifts</option>
-              <option value="Custom">Custom Designer Order</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                aria-label="Product category"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Unit
+              </label>
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                aria-label="Product unit"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {units.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -7,6 +7,7 @@ import { Plus, Trash2, FileText, CheckCircle, Clock, Truck, Sparkles } from 'luc
 
 interface OrdersViewProps {
   orders: Order[];
+  orderStatuses: string[];
   onOpenNewOrder: () => void;
   onDeleteOrder: (id: string) => void;
   onUpdateStatus: (id: string, status: OrderStatus) => void;
@@ -15,6 +16,7 @@ interface OrdersViewProps {
 
 export default function OrdersView({
   orders,
+  orderStatuses,
   onOpenNewOrder,
   onDeleteOrder,
   onUpdateStatus,
@@ -50,11 +52,11 @@ export default function OrdersView({
 
       {/* Status Filter Tabs */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
-        {(['All', 'Inquiry', 'Production', 'Ready', 'Dispatched', 'Delivered'] as const).map((status) => (
+        {['All', ...orderStatuses].map((status) => (
           <button
             key={status}
             onClick={() => setFilter(status)}
-            className={`px-3 py-1.5 rounded-lg border font-medium transition ${
+            className={`px-3 py-1.5 rounded-lg border font-medium transition whitespace-nowrap ${
               filter === status
                 ? 'bg-[#541523] text-white border-[#541523]'
                 : 'bg-white text-[#635B5B] border-[#E8DDCF] hover:bg-[#FAF6F0]'
@@ -127,23 +129,25 @@ export default function OrdersView({
                     onChange={(e) => onUpdateStatus(order.id, e.target.value as OrderStatus)}
                     aria-label={`Update status for order ${order.orderNumber}`}
                     className={`text-xs font-medium px-3 py-1.5 rounded-lg border focus:outline-none transition ${
-                      order.status === 'Production'
+                      order.status === 'In Production' || order.status === 'Production'
                         ? 'bg-amber-50 text-amber-900 border-amber-300'
                         : order.status === 'Ready'
                         ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                        : order.status === 'Inquiry'
+                        : order.status === 'New' || order.status === 'Inquiry'
                         ? 'bg-blue-50 text-blue-900 border-blue-300'
-                        : order.status === 'Dispatched'
-                        ? 'bg-purple-50 text-purple-900 border-purple-300'
+                        : order.status === 'Cancelled'
+                        ? 'bg-rose-50 text-rose-900 border-rose-300'
                         : 'bg-stone-50 text-stone-800 border-stone-300'
                     }`}
                   >
-                    <option value="Inquiry">Inquiry</option>
-                    <option value="Production">Production</option>
-                    <option value="Ready">Ready</option>
-                    <option value="Dispatched">Dispatched</option>
-                    <option value="Delivered">Delivered</option>
-                    <option value="Cancelled">Cancelled</option>
+                    {(orderStatuses.includes(order.status)
+                      ? orderStatuses
+                      : [order.status, ...orderStatuses]
+                    ).map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
                   </select>
 
                   {/* Invoice Generator Button */}

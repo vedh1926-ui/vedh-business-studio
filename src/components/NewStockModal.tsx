@@ -5,15 +5,23 @@ import { InventoryItem } from '@/lib/types';
 import { X } from 'lucide-react';
 
 interface NewStockModalProps {
+  categories?: string[];
+  units?: string[];
   onClose: () => void;
   onSave: (item: Omit<InventoryItem, 'id' | 'status'>) => void;
 }
 
-export default function NewStockModal({ onClose, onSave }: NewStockModalProps) {
+export default function NewStockModal({
+  categories = ['Wax / Candles', 'Packaging', 'Resin Supplies', 'Fabric', 'Other'],
+  units = ['pcs', 'g', 'kg', 'ml', 'm', 'roll', 'set', 'inch', 'cm', 'pack'],
+  onClose,
+  onSave,
+}: NewStockModalProps) {
   const [name, setName] = useState('');
   const [type, setType] = useState<InventoryItem['type']>('Raw Material');
+  const [category, setCategory] = useState<string>(categories[0] || 'Wax / Candles');
   const [stock, setStock] = useState('');
-  const [unit, setUnit] = useState('units');
+  const [unit, setUnit] = useState<string>(units[0] || 'pcs');
   const [reorderLevel, setReorderLevel] = useState('10');
   const [supplier, setSupplier] = useState('');
 
@@ -24,6 +32,7 @@ export default function NewStockModal({ onClose, onSave }: NewStockModalProps) {
     onSave({
       name,
       type,
+      category,
       stock: parseInt(stock) || 0,
       unit,
       reorderLevel: parseInt(reorderLevel) || 5,
@@ -64,19 +73,40 @@ export default function NewStockModal({ onClose, onSave }: NewStockModalProps) {
             />
           </div>
 
-          <div>
-            <label className="block text-[#423A3A] font-semibold mb-1">
-              Inventory Type
-            </label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as any)}
-              className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-            >
-              <option value="Raw Material">Raw Material (Wax, Resin, Scents, Wicks)</option>
-              <option value="Packaging">Packaging (Rigid Boxes, Foil Bags, Ribbons)</option>
-              <option value="Finished Good">Finished Good (Ready to Ship Piece)</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Inventory Type
+              </label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value as InventoryItem['type'])}
+                aria-label="Inventory type"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                <option value="Raw Material">Raw Material</option>
+                <option value="Packaging">Packaging</option>
+                <option value="Finished Good">Finished Good</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Material Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                aria-label="Material category"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -98,13 +128,18 @@ export default function NewStockModal({ onClose, onSave }: NewStockModalProps) {
               <label className="block text-[#423A3A] font-semibold mb-1">
                 Unit of Measure
               </label>
-              <input
-                type="text"
-                placeholder="kg / units / liters / boxes"
+              <select
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
-              />
+                aria-label="Unit of measure"
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              >
+                {units.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

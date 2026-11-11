@@ -31,7 +31,7 @@ export default function HistoryView({ logs }: HistoryViewProps) {
       <div className="bg-white border border-[#E8DDCF] rounded-2xl p-6 shadow-sm">
         {/* Category Filter Pills matching screenshot */}
         <div className="inline-flex rounded-md border border-[#D9C9B4] bg-[#FAF5EE] p-0.5 text-xs mb-6 overflow-x-auto max-w-full">
-          {(['All', 'Product', 'Order', 'Expense', 'Payment', 'Customer'] as const).map((cat) => (
+          {(['All', 'Product', 'Order', 'Expense', 'Payment', 'Customer', 'Master List'] as const).map((cat) => (
             <button
               key={cat}
               onClick={() => setFilter(cat)}

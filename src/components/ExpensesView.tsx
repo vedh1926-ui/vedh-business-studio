@@ -7,14 +7,18 @@ import { Plus, Receipt, Calendar, CreditCard } from 'lucide-react';
 
 interface ExpensesViewProps {
   expenses: Expense[];
+  purchaseStatuses?: string[];
   onOpenNewExpense: () => void;
   onDeleteExpense: (id: string) => void;
+  onUpdatePurchaseStatus?: (id: string, purchaseStatus: string) => void;
 }
 
 export default function ExpensesView({
   expenses,
+  purchaseStatuses = [],
   onOpenNewExpense,
   onDeleteExpense,
+  onUpdatePurchaseStatus,
 }: ExpensesViewProps) {
   const totalExpenses = expenses.reduce((acc, curr) => acc + curr.amount, 0);
 
@@ -72,7 +76,7 @@ export default function ExpensesView({
                     <div className="text-sm font-semibold text-[#2C181B]">
                       {expense.title}
                     </div>
-                    <div className="text-xs text-[#7A6E6E] flex items-center space-x-2 mt-0.5">
+                    <div className="text-xs text-[#7A6E6E] flex flex-wrap items-center gap-2 mt-0.5">
                       <span className="font-medium text-[#8F243C]">{expense.category}</span>
                       {expense.supplierName && <span>• {expense.supplierName}</span>}
                       <span>• {expense.date}</span>
@@ -80,7 +84,31 @@ export default function ExpensesView({
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-6 justify-between sm:justify-end">
+                <div className="flex items-center space-x-4 sm:space-x-6 justify-between sm:justify-end">
+                  {onUpdatePurchaseStatus && purchaseStatuses.length > 0 ? (
+                    <select
+                      value={expense.purchaseStatus || 'Ordered'}
+                      onChange={(e) => onUpdatePurchaseStatus(expense.id, e.target.value)}
+                      aria-label={`Purchase status for ${expense.title}`}
+                      className="text-[11px] font-medium px-2.5 py-1 rounded-full border border-[#E8DDCF] bg-[#FAF6F0] text-[#541523] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                    >
+                      {(expense.purchaseStatus && !purchaseStatuses.includes(expense.purchaseStatus)
+                        ? [expense.purchaseStatus, ...purchaseStatuses]
+                        : purchaseStatuses
+                      ).map((ps) => (
+                        <option key={ps} value={ps}>
+                          {ps}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    expense.purchaseStatus && (
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-medium bg-[#FAF6F0] text-[#541523] border border-[#E8DDCF]">
+                        {expense.purchaseStatus}
+                      </span>
+                    )
+                  )}
+
                   <div className="text-right">
                     <div className="font-serif font-bold text-[#8F243C] text-base">
                       {formatINR(expense.amount)}

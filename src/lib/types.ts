@@ -1,4 +1,4 @@
-export type OrderStatus = 'Inquiry' | 'Production' | 'Ready' | 'Dispatched' | 'Delivered' | 'Cancelled';
+export type OrderStatus = string; // Driven dynamically by Master Lists (e.g. 'New', 'In Production', 'Ready', 'Delivered', 'Cancelled')
 
 export interface OrderItem {
   productId: string;
@@ -18,19 +18,21 @@ export interface Order {
   advancePaid: number;
   balanceDue: number;
   status: OrderStatus;
+  paymentMode?: string;
   createdAt: string;
   targetDeliveryDate?: string;
   notes?: string;
-  occasion?: string; // e.g. Diwali Corporate Gift, Wedding Return Gifts, Housewarming
+  occasion?: string;
 }
 
 export interface Product {
   id: string;
   name: string;
-  category: 'Candles' | 'Resin Coasters' | 'Embroidery' | 'Gift Hampers' | 'Custom';
+  category: string; // Driven by Category master list or collection name
   price: number;
   estimatedCost: number;
   stock: number;
+  unit?: string; // Driven by Unit master list
   reorderLevel: number;
   status: 'Healthy' | 'Low' | 'Out of Stock';
   imageUrl?: string;
@@ -41,21 +43,24 @@ export interface InventoryItem {
   id: string;
   name: string;
   type: 'Finished Good' | 'Raw Material' | 'Packaging';
+  category?: string; // Driven by Category master list
   stock: number;
-  unit: string; // e.g., 'units', 'kg', 'liters', 'pieces'
+  unit: string; // Driven by Unit master list
   reorderLevel: number;
   status: 'Healthy' | 'Low' | 'Critical';
   supplier?: string;
+  lastAdjustmentReason?: string; // Driven by Adjustment Reason master list
 }
 
 export interface Expense {
   id: string;
-  category: 'Raw Materials' | 'Packaging' | 'Courier / Logistics' | 'Marketing' | 'Tools & Molds' | 'Other';
+  category: string; // Driven by Category master list
   title: string;
   amount: number;
   date: string;
   supplierName?: string;
-  paymentMode: 'UPI' | 'Bank Transfer' | 'Cash' | 'Card';
+  paymentMode: string; // Driven by Payment Mode master list
+  purchaseStatus?: string; // Driven by Purchase Status master list
   notes?: string;
 }
 
@@ -74,7 +79,7 @@ export interface Customer {
 export interface Supplier {
   id: string;
   name: string;
-  category: 'Wax & Fragrance' | 'Resin & Hardener' | 'Gift Boxes & Packaging' | 'Embroidery Materials' | 'General';
+  category: string;
   phone: string;
   email?: string;
   city?: string;
@@ -88,15 +93,30 @@ export interface Payment {
   customerName: string;
   amount: number;
   date: string;
-  method: 'UPI / GPay / PhonePe' | 'Bank Transfer' | 'Cash' | 'Card';
+  method: string; // Driven by Payment Mode master list
   status: 'Received' | 'Pending Verification';
 }
 
 export interface HistoryLog {
   id: string;
-  category: 'All' | 'Product' | 'Order' | 'Expense' | 'Payment' | 'Customer';
+  category: 'All' | 'Product' | 'Order' | 'Expense' | 'Payment' | 'Customer' | 'Master List';
   description: string;
   timestamp: string;
+}
+
+export interface MasterListItem {
+  id: string;
+  label: string;
+  isActive: boolean;
+}
+
+export interface MasterListGroup {
+  id: string;
+  key: string; // e.g. 'category', 'unit', 'payment_mode', 'order_status', 'purchase_status', 'yes_no', 'adjustment_reason'
+  name: string; // Display name e.g. 'Category', 'Order Status'
+  description: string; // Where it is used in the studio
+  usedIn: string[]; // Tags showing connected modules e.g. ['Inventory', 'Expenses', 'Reports']
+  items: MasterListItem[];
 }
 
 export type ActiveTab =
@@ -110,5 +130,6 @@ export type ActiveTab =
   | 'suppliers'
   | 'payments'
   | 'reports'
+  | 'master-lists'
   | 'settings'
   | 'history';

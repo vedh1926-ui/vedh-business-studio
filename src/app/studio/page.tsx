@@ -15,6 +15,7 @@ import PaymentsView from '@/components/PaymentsView';
 import ReportsView from '@/components/ReportsView';
 import SettingsView from '@/components/SettingsView';
 import HistoryView from '@/components/HistoryView';
+import MasterListsView from '@/components/MasterListsView';
 
 import InvoiceModal from '@/components/InvoiceModal';
 import NewOrderModal from '@/components/NewOrderModal';
@@ -33,6 +34,7 @@ import {
   Payment,
   HistoryLog,
   OrderStatus,
+  MasterListGroup,
 } from '@/lib/types';
 
 import {
@@ -44,6 +46,7 @@ import {
   initialExpenses,
   initialPayments,
   initialHistory,
+  initialMasterLists,
 } from '@/lib/mockData';
 
 export default function Home() {
@@ -59,6 +62,7 @@ export default function Home() {
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
   const [payments, setPayments] = useState<Payment[]>(initialPayments);
   const [history, setHistory] = useState<HistoryLog[]>(initialHistory);
+  const [masterLists, setMasterLists] = useState<MasterListGroup[]>(initialMasterLists);
 
   // Modal States
   const [selectedOrderForInvoice, setSelectedOrderForInvoice] = useState<Order | null>(null);
@@ -84,6 +88,9 @@ export default function Home() {
 
       const savedPayments = localStorage.getItem('vedh_payments');
       if (savedPayments) setPayments(JSON.parse(savedPayments));
+
+      const savedMasterLists = localStorage.getItem('vedh_master_lists');
+      if (savedMasterLists) setMasterLists(JSON.parse(savedMasterLists));
     } catch {
       // LocalStorage access restricted or empty
     }
@@ -94,6 +101,13 @@ export default function Home() {
     try {
       localStorage.setItem(key, JSON.stringify(data));
     } catch {}
+  };
+
+  // Active option lookup helper from Master Lists
+  const getActiveOptions = (key: string): string[] => {
+    const group = masterLists.find((g) => g.key === key);
+    if (!group) return [];
+    return group.items.filter((i) => i.isActive).map((i) => i.label);
   };
 
   // Add history log helper
@@ -154,10 +168,14 @@ export default function Home() {
         customerName: newOrder.customerName,
         amount: newOrder.advancePaid,
         date: newOrder.createdAt,
-        method: 'UPI / GPay / PhonePe',
+        method: newOrder.paymentMode || 'UPI',
         status: 'Received',
       };
-      setPayments((prev) => [newPay, ...prev]);
+      setPayments((prev) => {
+        const nextPayments = [newPay, ...prev];
+        persist('vedh_payments', nextPayments);
+        return nextPayments;
+      });
     }
 
     addLog('Order', `Order ${newOrder.orderNumber} placed by ${newOrder.customerName} (₹${newOrder.totalAmount})`);
@@ -201,12 +219,17 @@ export default function Home() {
       id: `inv-${Date.now()}`,
       name: newProduct.name,
       type: 'Finished Good',
+      category: newProduct.category,
       stock: newProduct.stock,
-      unit: 'pieces',
+      unit: newProduct.unit || 'pcs',
       reorderLevel: newProduct.reorderLevel,
       status: status === 'Out of Stock' ? 'Critical' : status,
     };
-    setInventory((prev) => [newInv, ...prev]);
+    setInventory((prev) => {
+      const nextInv = [newInv, ...prev];
+      persist('vedh_inventory', nextInv);
+      return nextInv;
+    });
 
     addLog('Product', `New product catalogued: ${newProduct.name} (₹${newProduct.price})`);
   };
@@ -235,17 +258,31 @@ export default function Home() {
     addLog('Product', `Stock registered: ${newItem.name} (${newItem.stock} ${newItem.unit})`);
   };
 
-  const handleAdjustStock = (id: string, delta: number) => {
+  const handleAdjustStock = (id: string, delta: number, reason?: string) => {
+    const target = inventory.find((item) => item.id === id);
     const updated = inventory.map((item) => {
       if (item.id === id) {
         const nextStock = Math.max(0, item.stock + delta);
         const status: InventoryItem['status'] = nextStock <= item.reorderLevel ? 'Low' : 'Healthy';
-        return { ...item, stock: nextStock, status };
+        return {
+          ...item,
+          stock: nextStock,
+          status,
+          lastAdjustmentReason: reason || item.lastAdjustmentReason,
+        };
       }
       return item;
     });
     setInventory(updated);
     persist('vedh_inventory', updated);
+    if (target) {
+      addLog(
+        'Product',
+        `Stock adjusted for ${target.name} (${delta > 0 ? '+' : ''}${delta} ${target.unit})${
+          reason ? ` — ${reason}` : ''
+        }`
+      );
+    }
   };
 
   // Expenses Handlers
@@ -260,10 +297,145 @@ export default function Home() {
     addLog('Expense', `Expense recorded: ${newExpense.title} (₹${newExpense.amount})`);
   };
 
+  const handleUpdateExpenseStatus = (id: string, purchaseStatus: string) => {
+    const target = expenses.find((e) => e.id === id);
+    const updated = expenses.map((e) => (e.id === id ? { ...e, purchaseStatus } : e));
+    setExpenses(updated);
+    persist('vedh_expenses', updated);
+    if (target) {
+      addLog('Expense', `Purchase status for ${target.title} updated to ${purchaseStatus}`);
+    }
+  };
+
   const handleDeleteExpense = (id: string) => {
     const updated = expenses.filter((e) => e.id !== id);
     setExpenses(updated);
     persist('vedh_expenses', updated);
+  };
+
+  // Master Lists CRUD Handlers
+  const handleAddMasterItem = (groupId: string, label: string) => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const targetGroup = masterLists.find((g) => g.id === groupId);
+    const updated = masterLists.map((group) => {
+      if (group.id !== groupId) return group;
+      return {
+        ...group,
+        items: [
+          ...group.items,
+          { id: `ml-item-${Date.now()}`, label: trimmed, isActive: true },
+        ],
+      };
+    });
+    setMasterLists(updated);
+    persist('vedh_master_lists', updated);
+    if (targetGroup) {
+      addLog('Master List', `Added "${trimmed}" to ${targetGroup.name}`);
+    }
+  };
+
+  const handleEditMasterItem = (groupId: string, itemId: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    if (!trimmed) return;
+    const targetGroup = masterLists.find((g) => g.id === groupId);
+    const oldItem = targetGroup?.items.find((i) => i.id === itemId);
+    const updated = masterLists.map((group) => {
+      if (group.id !== groupId) return group;
+      return {
+        ...group,
+        items: group.items.map((item) =>
+          item.id === itemId ? { ...item, label: trimmed } : item
+        ),
+      };
+    });
+    setMasterLists(updated);
+    persist('vedh_master_lists', updated);
+    if (targetGroup && oldItem && oldItem.label !== trimmed) {
+      addLog(
+        'Master List',
+        `Renamed "${oldItem.label}" to "${trimmed}" in ${targetGroup.name}`
+      );
+    }
+  };
+
+  const handleToggleMasterItem = (groupId: string, itemId: string) => {
+    const targetGroup = masterLists.find((g) => g.id === groupId);
+    const targetItem = targetGroup?.items.find((i) => i.id === itemId);
+    const updated = masterLists.map((group) => {
+      if (group.id !== groupId) return group;
+      return {
+        ...group,
+        items: group.items.map((item) =>
+          item.id === itemId ? { ...item, isActive: !item.isActive } : item
+        ),
+      };
+    });
+    setMasterLists(updated);
+    persist('vedh_master_lists', updated);
+    if (targetGroup && targetItem) {
+      addLog(
+        'Master List',
+        `${targetItem.isActive ? 'Hid' : 'Activated'} "${targetItem.label}" in ${targetGroup.name}`
+      );
+    }
+  };
+
+  const handleDeleteMasterItem = (groupId: string, itemId: string) => {
+    const targetGroup = masterLists.find((g) => g.id === groupId);
+    const targetItem = targetGroup?.items.find((i) => i.id === itemId);
+    const updated = masterLists.map((group) => {
+      if (group.id !== groupId) return group;
+      return {
+        ...group,
+        items: group.items.filter((item) => item.id !== itemId),
+      };
+    });
+    setMasterLists(updated);
+    persist('vedh_master_lists', updated);
+    if (targetGroup && targetItem) {
+      addLog('Master List', `Deleted "${targetItem.label}" from ${targetGroup.name}`);
+    }
+  };
+
+  const handleAddMasterGroup = (name: string, description: string, usedIn: string[]) => {
+    const baseKey =
+      name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '') || `custom_${Date.now()}`;
+    const keyExists = masterLists.some((g) => g.key === baseKey);
+    const key = keyExists ? `${baseKey}_${Date.now()}` : baseKey;
+
+    const newGroup: MasterListGroup = {
+      id: `ml-grp-${Date.now()}`,
+      key,
+      name: name.trim(),
+      description: description.trim() || 'Custom parameter list',
+      usedIn: usedIn.length > 0 ? usedIn : ['Studio Operations'],
+      items: [],
+    };
+    const updated = [...masterLists, newGroup];
+    setMasterLists(updated);
+    persist('vedh_master_lists', updated);
+    addLog('Master List', `Created new parameter table "${newGroup.name}"`);
+  };
+
+  const handleDeleteMasterGroup = (groupId: string) => {
+    const targetGroup = masterLists.find((g) => g.id === groupId);
+    const updated = masterLists.filter((g) => g.id !== groupId);
+    setMasterLists(updated);
+    persist('vedh_master_lists', updated);
+    if (targetGroup) {
+      addLog('Master List', `Deleted parameter table "${targetGroup.name}"`);
+    }
+  };
+
+  const handleResetMasterLists = () => {
+    setMasterLists(initialMasterLists);
+    persist('vedh_master_lists', initialMasterLists);
+    addLog('Master List', 'Reset all Master Lists to Excel factory defaults');
   };
 
   // Customers Handlers
@@ -357,6 +529,7 @@ export default function Home() {
           {activeTab === 'orders' && (
             <OrdersView
               orders={orders}
+              orderStatuses={getActiveOptions('order_status')}
               onOpenNewOrder={() => setIsNewOrderOpen(true)}
               onDeleteOrder={handleDeleteOrder}
               onUpdateStatus={handleUpdateOrderStatus}
@@ -375,6 +548,7 @@ export default function Home() {
           {activeTab === 'inventory' && (
             <InventoryView
               inventory={inventory}
+              adjustmentReasons={getActiveOptions('adjustment_reason')}
               onOpenNewStock={() => setIsNewStockOpen(true)}
               onAdjustStock={handleAdjustStock}
             />
@@ -390,8 +564,10 @@ export default function Home() {
           {activeTab === 'expenses' && (
             <ExpensesView
               expenses={expenses}
+              purchaseStatuses={getActiveOptions('purchase_status')}
               onOpenNewExpense={() => setIsNewExpenseOpen(true)}
               onDeleteExpense={handleDeleteExpense}
+              onUpdatePurchaseStatus={handleUpdateExpenseStatus}
             />
           )}
 
@@ -406,6 +582,7 @@ export default function Home() {
           {activeTab === 'suppliers' && (
             <SuppliersView
               suppliers={suppliers}
+              categories={getActiveOptions('category')}
               onAddSupplier={handleAddSupplier}
               onDeleteSupplier={handleDeleteSupplier}
             />
@@ -414,6 +591,7 @@ export default function Home() {
           {activeTab === 'payments' && (
             <PaymentsView
               payments={payments}
+              paymentModes={getActiveOptions('payment_mode')}
               onAddPayment={handleAddPayment}
             />
           )}
@@ -424,6 +602,19 @@ export default function Home() {
               products={products}
               expenses={expenses}
               payments={payments}
+            />
+          )}
+
+          {activeTab === 'master-lists' && (
+            <MasterListsView
+              masterLists={masterLists}
+              onAddItem={handleAddMasterItem}
+              onEditItem={handleEditMasterItem}
+              onToggleItem={handleToggleMasterItem}
+              onDeleteItem={handleDeleteMasterItem}
+              onAddGroup={handleAddMasterGroup}
+              onDeleteGroup={handleDeleteMasterGroup}
+              onResetDefaults={handleResetMasterLists}
             />
           )}
 
@@ -444,6 +635,8 @@ export default function Home() {
       {isNewOrderOpen && (
         <NewOrderModal
           products={products}
+          paymentModes={getActiveOptions('payment_mode')}
+          orderStatuses={getActiveOptions('order_status')}
           onClose={() => setIsNewOrderOpen(false)}
           onSave={handleSaveOrder}
         />
@@ -451,6 +644,8 @@ export default function Home() {
 
       {isNewProductOpen && (
         <NewProductModal
+          categories={getActiveOptions('category')}
+          units={getActiveOptions('unit')}
           onClose={() => setIsNewProductOpen(false)}
           onSave={handleSaveProduct}
         />
@@ -458,6 +653,8 @@ export default function Home() {
 
       {isNewStockOpen && (
         <NewStockModal
+          categories={getActiveOptions('category')}
+          units={getActiveOptions('unit')}
           onClose={() => setIsNewStockOpen(false)}
           onSave={handleSaveStock}
         />
@@ -465,6 +662,9 @@ export default function Home() {
 
       {isNewExpenseOpen && (
         <NewExpenseModal
+          categories={getActiveOptions('category')}
+          paymentModes={getActiveOptions('payment_mode')}
+          purchaseStatuses={getActiveOptions('purchase_status')}
           onClose={() => setIsNewExpenseOpen(false)}
           onSave={handleSaveExpense}
         />

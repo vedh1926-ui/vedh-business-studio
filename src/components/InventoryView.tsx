@@ -6,16 +6,27 @@ import { Plus, AlertCircle, CheckCircle2, Boxes } from 'lucide-react';
 
 interface InventoryViewProps {
   inventory: InventoryItem[];
+  adjustmentReasons?: string[];
   onOpenNewStock: () => void;
-  onAdjustStock: (id: string, delta: number) => void;
+  onAdjustStock: (id: string, delta: number, reason?: string) => void;
 }
 
 export default function InventoryView({
   inventory,
+  adjustmentReasons = [
+    'Stock count correction',
+    'Breakage / wastage',
+    'Sample / trial piece',
+    'Gift / free item',
+    'Other',
+  ],
   onOpenNewStock,
   onAdjustStock,
 }: InventoryViewProps) {
   const [tab, setTab] = useState<'All' | 'Finished Good' | 'Raw Material' | 'Packaging'>('All');
+  const [selectedReason, setSelectedReason] = useState<string>(
+    adjustmentReasons[0] || 'Stock count correction'
+  );
 
   const filteredItems = tab === 'All'
     ? inventory
@@ -43,21 +54,39 @@ export default function InventoryView({
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center space-x-2 text-xs">
-        {(['All', 'Finished Good', 'Raw Material', 'Packaging'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-1.5 rounded-lg border font-medium transition ${
-              tab === t
-                ? 'bg-[#541523] text-white border-[#541523]'
-                : 'bg-white text-[#635B5B] border-[#E8DDCF] hover:bg-[#FAF6F0]'
-            }`}
+      {/* Tabs & Active Adjustment Reason Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        <div className="flex items-center space-x-2 overflow-x-auto">
+          {(['All', 'Finished Good', 'Raw Material', 'Packaging'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-3 py-1.5 rounded-lg border font-medium transition whitespace-nowrap ${
+                tab === t
+                  ? 'bg-[#541523] text-white border-[#541523]'
+                  : 'bg-white text-[#635B5B] border-[#E8DDCF] hover:bg-[#FAF6F0]'
+              }`}
+            >
+              {t === 'All' ? 'All Items' : t}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <span className="text-[#7A6E6E] font-medium whitespace-nowrap">Adjustment reason:</span>
+          <select
+            value={selectedReason}
+            onChange={(e) => setSelectedReason(e.target.value)}
+            aria-label="Stock adjustment reason"
+            className="px-2.5 py-1.5 rounded-lg border border-[#D9C9B4] bg-white text-[#2C181B] font-medium focus:outline-none focus:ring-1 focus:ring-[#541523]"
           >
-            {t === 'All' ? 'All Items' : t}
-          </button>
-        ))}
+            {adjustmentReasons.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Inventory Table matching page 4 styling */}
@@ -73,11 +102,19 @@ export default function InventoryView({
                 <div className="text-sm font-semibold text-[#2C181B]">
                   {item.name}
                 </div>
-                <div className="text-[11px] text-[#7A6E6E] flex items-center space-x-2 mt-0.5">
+                <div className="text-[11px] text-[#7A6E6E] flex flex-wrap items-center gap-2 mt-0.5">
                   <span className="bg-[#FAF0E6] text-[#8F243C] px-1.5 py-0.5 rounded font-medium">
                     {item.type}
                   </span>
+                  {item.category && (
+                    <span className="bg-[#F2EBE0] text-[#541523] px-1.5 py-0.5 rounded font-medium">
+                      {item.category}
+                    </span>
+                  )}
                   {item.supplier && <span>Supplier: {item.supplier}</span>}
+                  {item.lastAdjustmentReason && (
+                    <span className="text-[#9A8A8A]">Last note: {item.lastAdjustmentReason}</span>
+                  )}
                 </div>
               </div>
 
@@ -104,16 +141,16 @@ export default function InventoryView({
                 {/* Quick adjustments +/- */}
                 <div className="flex items-center space-x-1">
                   <button
-                    onClick={() => onAdjustStock(item.id, -1)}
+                    onClick={() => onAdjustStock(item.id, -1, selectedReason)}
                     className="w-7 h-7 rounded border border-[#E8DDCF] bg-[#FAF6F0] hover:bg-[#F2EBE0] text-xs font-bold text-[#541523] flex items-center justify-center transition"
-                    title="Deduct 1"
+                    title={`Deduct 1 (${selectedReason})`}
                   >
                     -
                   </button>
                   <button
-                    onClick={() => onAdjustStock(item.id, 1)}
+                    onClick={() => onAdjustStock(item.id, 1, selectedReason)}
                     className="w-7 h-7 rounded border border-[#E8DDCF] bg-[#FAF6F0] hover:bg-[#F2EBE0] text-xs font-bold text-[#541523] flex items-center justify-center transition"
-                    title="Add 1"
+                    title={`Add 1 (${selectedReason})`}
                   >
                     +
                   </button>
