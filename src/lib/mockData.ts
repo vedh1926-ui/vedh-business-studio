@@ -9,6 +9,10 @@ import {
   HistoryLog,
   MasterListGroup,
 } from './types';
+import {
+  initialPurchaseExpenses,
+  initialSheetSuppliers,
+} from './purchaseSheetSeed';
 
 const mkItems = (prefix: string, labels: string[]) =>
   labels.map((label, idx) => ({
@@ -109,6 +113,25 @@ export const initialMasterLists: MasterListGroup[] = [
       'Returned',
       'Refund Pending',
       'Cancelled',
+    ]),
+  },
+  {
+    id: 'ml-platform',
+    key: 'platform',
+    name: 'Platform / Source',
+    description: 'Marketplaces, online portals, and offline wholesale markets tracked in Purchases & Platform Summary.',
+    usedIn: ['Dashboard', 'Expenses', 'Suppliers', 'Reports'],
+    items: mkItems('plat', [
+      'Amazon',
+      'Meesho',
+      'CSC',
+      'Bakematic Digital PvtLtd',
+      'Local market',
+      'Outstation Market',
+      'Luxury Deco',
+      'Just Kraft',
+      'Flipkart',
+      'IndiaMART',
     ]),
   },
   {
@@ -387,72 +410,9 @@ export const initialCustomers: Customer[] = [
   },
 ];
 
-export const initialSuppliers: Supplier[] = [
-  {
-    id: 'sup-1',
-    name: 'Vedic Aromas & Waxes',
-    category: 'Wax / Candles',
-    phone: '+91 94140 12345',
-    email: 'sales@vedicaromas.in',
-    city: 'Kannauj / UP',
-    totalOrders: 4,
-    totalPaid: 18500,
-  },
-  {
-    id: 'sup-2',
-    name: 'Jaipur Brass Guild',
-    category: 'Metal Holders',
-    phone: '+91 98765 43210',
-    email: 'orders@jaipurbrass.com',
-    city: 'Jaipur',
-    totalOrders: 3,
-    totalPaid: 16400,
-  },
-  {
-    id: 'sup-3',
-    name: 'Royal Box Printers',
-    category: 'Packaging',
-    phone: '+91 91234 56789',
-    email: 'contact@royalboxprinters.com',
-    city: 'Sivakasi',
-    totalOrders: 3,
-    totalPaid: 14000,
-  },
-];
+export const initialSuppliers: Supplier[] = initialSheetSuppliers;
 
-export const initialExpenses: Expense[] = [
-  {
-    id: 'exp-1',
-    category: 'Wax / Candles',
-    title: 'Pure Soy Wax 20kg + Lavender Oils',
-    amount: 7800,
-    date: '2026-11-02',
-    supplierName: 'Vedic Aromas & Waxes',
-    paymentMode: 'UPI',
-    purchaseStatus: 'Delivered',
-    notes: 'Invoice #VA-891',
-  },
-  {
-    id: 'exp-2',
-    category: 'Packaging',
-    title: 'Custom VEDH Gold-embossed Rigid Boxes',
-    amount: 6200,
-    date: '2026-11-04',
-    supplierName: 'Royal Box Printers',
-    paymentMode: 'Net Banking',
-    purchaseStatus: 'Delivered',
-    notes: 'Batch of 100 boxes',
-  },
-  {
-    id: 'exp-3',
-    category: 'Other',
-    title: 'Rapido local courier for Diwali samples',
-    amount: 1450,
-    date: '2026-11-07',
-    paymentMode: 'UPI',
-    purchaseStatus: 'Rapido',
-  },
-];
+export const initialExpenses: Expense[] = initialPurchaseExpenses;
 
 export const initialPayments: Payment[] = [
   {

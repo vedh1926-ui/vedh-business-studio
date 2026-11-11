@@ -70,6 +70,7 @@ export default function Home() {
   const [isNewProductOpen, setIsNewProductOpen] = useState(false);
   const [isNewStockOpen, setIsNewStockOpen] = useState(false);
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
   // Hydrate from localStorage on client mount if available
   useEffect(() => {
@@ -83,14 +84,39 @@ export default function Home() {
       const savedInventory = localStorage.getItem('vedh_inventory');
       if (savedInventory) setInventory(JSON.parse(savedInventory));
 
+      // Upgrade placeholder expenses/suppliers once to the audited 131-row Purchase Sheet
+      const sheetVer = localStorage.getItem('vedh_expenses_version');
       const savedExpenses = localStorage.getItem('vedh_expenses');
-      if (savedExpenses) setExpenses(JSON.parse(savedExpenses));
+      if (savedExpenses && sheetVer === '2.0_sheet') {
+        setExpenses(JSON.parse(savedExpenses));
+      } else {
+        localStorage.setItem('vedh_expenses', JSON.stringify(initialExpenses));
+        localStorage.setItem('vedh_expenses_version', '2.0_sheet');
+        localStorage.setItem('vedh_suppliers', JSON.stringify(initialSuppliers));
+        setExpenses(initialExpenses);
+        setSuppliers(initialSuppliers);
+      }
+
+      const savedSuppliers = localStorage.getItem('vedh_suppliers');
+      if (savedSuppliers && sheetVer === '2.0_sheet') {
+        setSuppliers(JSON.parse(savedSuppliers));
+      }
 
       const savedPayments = localStorage.getItem('vedh_payments');
       if (savedPayments) setPayments(JSON.parse(savedPayments));
 
       const savedMasterLists = localStorage.getItem('vedh_master_lists');
-      if (savedMasterLists) setMasterLists(JSON.parse(savedMasterLists));
+      if (savedMasterLists) {
+        const parsedLists: MasterListGroup[] = JSON.parse(savedMasterLists);
+        const platformDefault = initialMasterLists.find((g) => g.key === 'platform');
+        if (platformDefault && !parsedLists.some((g) => g.key === 'platform')) {
+          const merged = [...parsedLists, platformDefault];
+          setMasterLists(merged);
+          localStorage.setItem('vedh_master_lists', JSON.stringify(merged));
+        } else {
+          setMasterLists(parsedLists);
+        }
+      }
     } catch {
       // LocalStorage access restricted or empty
     }
@@ -285,16 +311,31 @@ export default function Home() {
     }
   };
 
-  // Expenses Handlers
-  const handleSaveExpense = (expData: Omit<Expense, 'id'>) => {
+  // Expenses / Purchases Handlers
+  const handleSaveExpense = (expData: Omit<Expense, 'id'>, existingId?: string) => {
+    if (existingId) {
+      const updated = expenses.map((e) =>
+        e.id === existingId ? { ...expData, id: existingId } : e
+      );
+      setExpenses(updated);
+      persist('vedh_expenses', updated);
+      persist('vedh_expenses_version', '2.0_sheet');
+      addLog('Expense', `Purchase updated: ${expData.title} (₹${expData.amount})`);
+      return;
+    }
+
     const newExpense: Expense = {
       ...expData,
-      id: `exp-${Date.now()}`,
+      id: `pur-${Date.now()}`,
     };
     const updated = [newExpense, ...expenses];
     setExpenses(updated);
     persist('vedh_expenses', updated);
-    addLog('Expense', `Expense recorded: ${newExpense.title} (₹${newExpense.amount})`);
+    persist('vedh_expenses_version', '2.0_sheet');
+    addLog(
+      'Expense',
+      `Purchase recorded (${newExpense.platform || 'Direct'}): ${newExpense.title} (₹${newExpense.amount})`
+    );
   };
 
   const handleUpdateExpenseStatus = (id: string, purchaseStatus: string) => {
@@ -308,9 +349,22 @@ export default function Home() {
   };
 
   const handleDeleteExpense = (id: string) => {
+    const target = expenses.find((e) => e.id === id);
     const updated = expenses.filter((e) => e.id !== id);
     setExpenses(updated);
     persist('vedh_expenses', updated);
+    if (target) {
+      addLog('Expense', `Purchase deleted: ${target.title} (₹${target.amount})`);
+    }
+  };
+
+  const handleResetExpenseSheet = () => {
+    setExpenses(initialExpenses);
+    setSuppliers(initialSuppliers);
+    persist('vedh_expenses', initialExpenses);
+    persist('vedh_suppliers', initialSuppliers);
+    persist('vedh_expenses_version', '2.0_sheet');
+    addLog('Expense', 'Reloaded cleaned 131-item Purchase Sheet defaults');
   };
 
   // Master Lists CRUD Handlers
@@ -491,7 +545,10 @@ export default function Home() {
     if (type === 'order') setIsNewOrderOpen(true);
     if (type === 'product') setIsNewProductOpen(true);
     if (type === 'stock') setIsNewStockOpen(true);
-    if (type === 'expense') setIsNewExpenseOpen(true);
+    if (type === 'expense') {
+      setEditingExpense(null);
+      setIsNewExpenseOpen(true);
+    }
   };
 
   return (
@@ -519,9 +576,15 @@ export default function Home() {
               orders={orders}
               products={products}
               inventory={inventory}
+              expenses={expenses}
+              platforms={getActiveOptions('platform')}
               setActiveTab={setActiveTab}
               onOpenNewOrder={() => setIsNewOrderOpen(true)}
               onOpenNewStock={() => setIsNewStockOpen(true)}
+              onOpenNewExpense={() => {
+                setEditingExpense(null);
+                setIsNewExpenseOpen(true);
+              }}
               onSelectOrderForInvoice={(order) => setSelectedOrderForInvoice(order)}
             />
           )}
@@ -564,10 +627,20 @@ export default function Home() {
           {activeTab === 'expenses' && (
             <ExpensesView
               expenses={expenses}
+              platforms={getActiveOptions('platform')}
+              categories={getActiveOptions('category')}
               purchaseStatuses={getActiveOptions('purchase_status')}
-              onOpenNewExpense={() => setIsNewExpenseOpen(true)}
+              onOpenNewExpense={() => {
+                setEditingExpense(null);
+                setIsNewExpenseOpen(true);
+              }}
+              onEditExpense={(expense) => {
+                setEditingExpense(expense);
+                setIsNewExpenseOpen(true);
+              }}
               onDeleteExpense={handleDeleteExpense}
               onUpdatePurchaseStatus={handleUpdateExpenseStatus}
+              onResetSheetData={handleResetExpenseSheet}
             />
           )}
 
@@ -602,6 +675,7 @@ export default function Home() {
               products={products}
               expenses={expenses}
               payments={payments}
+              platforms={getActiveOptions('platform')}
             />
           )}
 
@@ -662,10 +736,15 @@ export default function Home() {
 
       {isNewExpenseOpen && (
         <NewExpenseModal
+          initialExpense={editingExpense}
+          platforms={getActiveOptions('platform')}
           categories={getActiveOptions('category')}
           paymentModes={getActiveOptions('payment_mode')}
           purchaseStatuses={getActiveOptions('purchase_status')}
-          onClose={() => setIsNewExpenseOpen(false)}
+          onClose={() => {
+            setIsNewExpenseOpen(false);
+            setEditingExpense(null);
+          }}
           onSave={handleSaveExpense}
         />
       )}

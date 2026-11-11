@@ -54,14 +54,65 @@ export interface InventoryItem {
 
 export interface Expense {
   id: string;
+  orderId?: string;
+  platform?: string; // Driven by Platform Master List (e.g. Amazon, Meesho, Local market, Just Kraft)
   category: string; // Driven by Category master list
-  title: string;
-  amount: number;
-  date: string;
-  supplierName?: string;
+  title: string; // Item name
+  dimensions?: string;
+  qty?: number; // Packs / items bought
+  piecesPerPack?: number; // Units per pack
+  unitPrice?: number; // ₹ per pack/item
+  shipping?: number; // Shipping / Other charges or adjustments (₹)
+  amount: number; // Total Cost (₹) = qty * unitPrice + shipping
+  date: string; // Order Date (YYYY-MM-DD)
+  expectedDelivery?: string;
+  actualDelivery?: string;
+  supplierName?: string; // Vendor / Bill / Shop name
   paymentMode: string; // Driven by Payment Mode master list
   purchaseStatus?: string; // Driven by Purchase Status master list
+  invoiceNo?: string;
+  receiptFile?: string;
+  imageRef?: string;
+  contactDetails?: string;
+  stockItem?: string;
   notes?: string;
+}
+
+export interface PurchaseRowMetrics {
+  qty: number;
+  piecesPerPack: number;
+  unitPrice: number;
+  shipping: number;
+  subtotal: number;
+  totalCost: number;
+  totalUnits: number;
+  costPerUnit: number;
+  daysTaken: number | null;
+  delayDays: number | null;
+  isLate: boolean;
+  isEarly: boolean;
+  isInTransit: boolean;
+  isProblemOrder: boolean;
+}
+
+export interface PlatformSummaryRow {
+  platform: string;
+  lineItems: number;
+  totalSpend: number;
+  avgDaysToDeliver: number | null;
+  lateDeliveries: number;
+  problemOrders: number;
+  inTransitCount: number;
+  sharePct: number;
+  notes?: string;
+}
+
+export interface CategorySpendRow {
+  category: string;
+  lineItems: number;
+  totalSpend: number;
+  totalUnits: number;
+  sharePct: number;
 }
 
 export interface Customer {

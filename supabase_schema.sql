@@ -98,14 +98,30 @@ create table if not exists public.payments (
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 8. EXPENSES TABLE
+-- 8. EXPENSES & PURCHASES LEDGER TABLE
 create table if not exists public.expenses (
     id uuid default uuid_generate_v4() primary key,
+    order_id text,
+    platform text,
     title text not null,
-    category text not null check (category in ('Raw Materials', 'Packaging', 'Courier / Logistics', 'Tools & Molds', 'Marketing', 'Other')),
-    amount numeric(12, 2) not null check (amount > 0),
+    dimensions text,
+    category text not null,
+    qty numeric(12, 4) default 1,
+    pieces_per_pack numeric(12, 4) default 1,
+    unit_price numeric(12, 4) default 0,
+    shipping numeric(12, 2) default 0,
+    amount numeric(12, 2) not null check (amount >= 0),
+    order_date date default current_date,
+    expected_delivery date,
+    actual_delivery date,
     supplier_name text,
     payment_mode text default 'UPI',
+    purchase_status text default 'Ordered',
+    invoice_no text,
+    receipt_file text,
+    image_ref text,
+    contact_details text,
+    stock_item text,
     notes text,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
