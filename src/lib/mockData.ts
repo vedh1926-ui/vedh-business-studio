@@ -9,12 +9,14 @@ import {
   HistoryLog,
   MasterListGroup,
   RecipeIngredient,
+  StockAdjustment,
 } from './types';
 import {
   initialPurchaseExpenses,
   initialSheetSuppliers,
 } from './purchaseSheetSeed';
 import {
+  initialSheetAdjustments,
   initialSheetInventory,
   initialSheetOrders,
   initialSheetPayments,
@@ -172,6 +174,8 @@ export const initialProducts: Product[] = initialSheetProducts;
 export const initialOrders: Order[] = initialSheetOrders;
 
 export const initialInventory: InventoryItem[] = initialSheetInventory;
+
+export const initialAdjustments: StockAdjustment[] = initialSheetAdjustments;
 
 export const initialRecipes: RecipeIngredient[] = initialSheetRecipes;
 

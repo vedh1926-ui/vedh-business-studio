@@ -25,7 +25,10 @@ export const initialPurchaseExpenses: Expense[] = [
     "expectedDelivery": "2026-11-15",
     "supplierName": "Meesho",
     "paymentMode": "UPI",
-    "purchaseStatus": "Shipped"
+    "purchaseStatus": "Shipped",
+    "stockItem": "MDF round board 4in",
+    "stockQtyReceived": 150,
+    "appliedToStock": false
   },
   {
     "id": "pur-132",
@@ -42,7 +45,10 @@ export const initialPurchaseExpenses: Expense[] = [
     "expectedDelivery": "2026-11-14",
     "supplierName": "Meesho",
     "paymentMode": "UPI",
-    "purchaseStatus": "Shipped"
+    "purchaseStatus": "Shipped",
+    "stockItem": "Metal tealight holder (gold)",
+    "stockQtyReceived": 60,
+    "appliedToStock": false
   },
   {
     "id": "pur-130",

@@ -47,7 +47,8 @@ export interface InventoryItem {
   name: string;
   type: 'Finished Good' | 'Raw Material' | 'Packaging';
   category?: string; // Driven by Category master list
-  stock: number;
+  openingStock?: number | null; // Physical shelf count baseline (null/undefined = missing opening count)
+  stock: number; // Computed Physical In Hand = (openingStock ?? 0) + received + adjustments
   unit: string; // Driven by Unit master list
   reorderLevel: number;
   avgUnitCost?: number; // Landed cost per unit (₹), synced from purchases or manually set
@@ -55,6 +56,59 @@ export interface InventoryItem {
   status: 'Healthy' | 'Low' | 'Critical';
   supplier?: string;
   lastAdjustmentReason?: string; // Driven by Adjustment Reason master list
+}
+
+export interface StockAdjustment {
+  id: string;
+  date: string;
+  materialId: string;
+  materialName: string;
+  delta: number;
+  reason: string; // Breakage / wastage, Stock count correction, Sample / trial piece, Gift / free item, etc.
+  notes?: string;
+}
+
+export interface InventoryLedgerMetrics {
+  openingStock: number | null;
+  receivedFromPurchases: number;
+  adjustmentsTotal: number;
+  physicalInHand: number;
+  committedToOrders: number;
+  freeAfterOrders: number;
+  incomingFromPurchases: number;
+  freeInclIncoming: number;
+  needsOpeningCount: boolean;
+  ledgerStatus: 'OK' | 'LOW' | 'Short - stock arriving' | 'SHORT' | 'Enter opening count';
+  shortByAfterIncoming: number;
+  recommendedOrderQty: number;
+  estRestockCost: number | null;
+}
+
+export interface EnquiryItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface EnquiryMaterialRow {
+  materialId: string;
+  materialName: string;
+  unit: string;
+  neededForEnquiry: number;
+  freeNow: number;
+  leftAfterEnquiry: number;
+  incoming: number;
+  toBuy: number;
+  avgUnitCost: number | null;
+  estCost: number | null;
+  status: 'OK' | 'ARRIVING' | 'BUY';
+}
+
+export interface EnquiryCheckResult {
+  verdict: 'EMPTY' | 'YES' | 'OK_WITH_INCOMING' | 'BUY_FIRST' | 'MISSING_RECIPE';
+  missingRecipeProducts: string[];
+  rows: EnquiryMaterialRow[];
+  totalEstBuyCost: number;
 }
 
 export interface RecipeIngredient {
@@ -91,7 +145,10 @@ export interface OrderOverviewMetrics {
   totalUnitsOrdered: number;
   openOrderLines: number;
   openUnitsCount: number;
+  unitsToMake: number;
+  unitsReadyWaitingDelivery: number;
   openBalanceDue: number;
+  deliveredUnpaidAmount: number;
   dueSoonCount: number;
   overdueCount: number;
   unpaidCount: number;
@@ -158,6 +215,8 @@ export interface Expense {
   imageRef?: string;
   contactDetails?: string;
   stockItem?: string;
+  stockQtyReceived?: number;
+  appliedToStock?: boolean;
   notes?: string;
 }
 

@@ -12,6 +12,7 @@ interface NewExpenseModalProps {
   categories?: string[];
   paymentModes?: string[];
   purchaseStatuses?: string[];
+  stockItemOptions?: string[];
   onClose: () => void;
   onSave: (expense: Omit<Expense, 'id'>, existingId?: string) => void;
 }
@@ -44,6 +45,7 @@ export default function NewExpenseModal({
     'Refund Pending',
     'Cancelled',
   ],
+  stockItemOptions = [],
   onClose,
   onSave,
 }: NewExpenseModalProps) {
@@ -88,6 +90,15 @@ export default function NewExpenseModal({
   const [imageRef, setImageRef] = useState(initialExpense?.imageRef || '');
   const [contactDetails, setContactDetails] = useState(
     initialExpense?.contactDetails || ''
+  );
+  const [stockItem, setStockItem] = useState(initialExpense?.stockItem || '');
+  const [stockQtyStr, setStockQtyStr] = useState(
+    initialExpense?.stockQtyReceived !== undefined
+      ? String(initialExpense.stockQtyReceived)
+      : ''
+  );
+  const [appliedToStock, setAppliedToStock] = useState<boolean>(
+    initialExpense?.appliedToStock ?? !initialExpense
   );
   const [notes, setNotes] = useState(initialExpense?.notes || '');
 
@@ -146,8 +157,11 @@ export default function NewExpenseModal({
         invoiceNo: invoiceNo.trim() || undefined,
         receiptFile: receiptFile.trim() || undefined,
         imageRef: imageRef.trim() || undefined,
-        contactDetails: contactDetails.trim() || undefined,
-        notes: notes.trim() || undefined,
+      contactDetails: contactDetails.trim() || undefined,
+      stockItem: stockItem.trim() || undefined,
+      stockQtyReceived: stockQtyStr ? parseFloat(stockQtyStr) || undefined : undefined,
+      appliedToStock: Boolean(stockItem.trim()) && appliedToStock,
+      notes: notes.trim() || undefined,
       },
       initialExpense?.id
     );
@@ -518,6 +532,60 @@ export default function NewExpenseModal({
                 }}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
               />
+            </div>
+          </div>
+
+          {/* Stock Ledger Link (Optional: Incoming vs Received Post-Count) */}
+          <div className="bg-[#FAF5EE] border border-[#E8DDCF] rounded-xl p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-[#2C181B]">
+                Stock Ledger Link (Feeds Incoming &amp; Received Stock)
+              </span>
+              <span className="text-[10px] text-[#7A6E6E]">
+                Ordered/Shipped → Incoming · Delivered + Checked → Adds to Shelf In Hand
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+              <div>
+                <label className="block text-[#423A3A] font-medium mb-1">
+                  Linked Stock Material
+                </label>
+                <input
+                  list="vedh-stock-item-options"
+                  value={stockItem}
+                  onChange={(e) => setStockItem(e.target.value)}
+                  placeholder="Leave blank or pick Stock material"
+                  className="w-full px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                />
+                <datalist id="vedh-stock-item-options">
+                  {stockItemOptions.map((opt) => (
+                    <option key={opt} value={opt} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label className="block text-[#423A3A] font-medium mb-1">
+                  Stock Units (Default: {liveFormulas.totalUnits})
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={stockQtyStr}
+                  onChange={(e) => setStockQtyStr(e.target.value)}
+                  placeholder={String(liveFormulas.totalUnits)}
+                  className="w-full px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-[#423A3A] pt-4 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={appliedToStock}
+                  onChange={(e) => setAppliedToStock(e.target.checked)}
+                  className="rounded border-[#D9C9B4] text-[#541523] focus:ring-[#541523]"
+                />
+                <span>Add to Physical In Hand when Delivered (not already counted)</span>
+              </label>
             </div>
           </div>
 

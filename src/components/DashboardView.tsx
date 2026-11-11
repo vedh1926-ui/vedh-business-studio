@@ -8,6 +8,7 @@ import {
   Order,
   Product,
   RecipeIngredient,
+  StockAdjustment,
 } from '@/lib/types';
 import { formatINR } from '@/lib/utils';
 import {
@@ -17,6 +18,7 @@ import {
 } from '@/lib/purchaseFormulas';
 import {
   buildCombinedInvoiceOrder,
+  computeInventoryLedgerMetrics,
   computeOrderMetrics,
   computeOrderOverview,
   computeRecipeAndProductSnapshot,
@@ -24,8 +26,10 @@ import {
 import {
   ArrowUpRight,
   AlertTriangle,
+  ClipboardCheck,
   Layers,
   Clock,
+  ShoppingBag,
   Sparkles,
   Truck,
   Store,
@@ -37,6 +41,7 @@ interface DashboardViewProps {
   products: Product[];
   inventory: InventoryItem[];
   expenses: Expense[];
+  adjustments?: StockAdjustment[];
   recipes?: RecipeIngredient[];
   platforms?: string[];
   setActiveTab: (tab: ActiveTab) => void;
@@ -45,6 +50,7 @@ interface DashboardViewProps {
   onOpenNewExpense?: () => void;
   onSelectOrderForInvoice: (order: Order) => void;
   onOpenRecipeForProduct?: (productName: string) => void;
+  onOpenEnquiryChecker?: () => void;
 }
 
 export default function DashboardView({
@@ -52,6 +58,7 @@ export default function DashboardView({
   products,
   inventory,
   expenses,
+  adjustments = [],
   recipes = [],
   platforms = [],
   setActiveTab,
@@ -60,12 +67,14 @@ export default function DashboardView({
   onOpenNewExpense,
   onSelectOrderForInvoice,
   onOpenRecipeForProduct,
+  onOpenEnquiryChecker,
 }: DashboardViewProps) {
-  // Calculate live metrics across Orders, Products, Recipes & Purchases
+  // Calculate live metrics across Orders, Products, Recipes, Inventory & Purchases
   const purchaseOverview = computePurchaseOverview(expenses);
   const platformStats = computePlatformStats(expenses, platforms);
   const categorySpend = computeCategorySpend(expenses);
-  const recipeSnapshot = computeRecipeAndProductSnapshot(products, recipes, orders, inventory);
+  const recipeSnapshot = computeRecipeAndProductSnapshot(products, recipes, orders, inventory, expenses, adjustments);
+  const ledgerSummary = computeInventoryLedgerMetrics(inventory, recipes, orders, expenses, adjustments, products);
   const orderOverview = computeOrderOverview(orders, recipeSnapshot.productEconomicsByName);
 
   const totalOrderValue = orderOverview.totalOrderValue;
@@ -84,14 +93,14 @@ export default function DashboardView({
   const openProductsNeedingRecipe = productEcons.filter((e) => e.openUnits > 0 && !e.hasRecipe);
   const costedProductsSample = productEcons.filter((e) => e.hasRecipe);
 
-  // Low stock items
-  const lowStockItems = inventory.filter((item) => item.stock <= item.reorderLevel);
+  // Shopping list items from workbook ledger engine
+  const shoppingList = ledgerSummary.shoppingList;
 
   return (
     <div className="space-y-8 animate-fadeIn">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-[#FAF5EE] via-[#FDFBF8] to-[#FAF5EE] border border-[#E8DDCF] rounded-2xl p-6 sm:p-8 shadow-sm">
-        <div className="max-w-3xl">
+      <div className="bg-gradient-to-r from-[#FAF5EE] via-[#FDFBF8] to-[#FAF5EE] border border-[#E8DDCF] rounded-2xl p-6 sm:p-8 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="max-w-2xl">
           <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-[#8F243C] mb-1">
             <Sparkles size={14} className="text-[#C69C31]" />
             <span>Artisanal Heritage & Studio Overview</span>
@@ -103,6 +112,16 @@ export default function DashboardView({
             Manage your Vedh records, track bespoke orders, monitor artisanal materials, and issue branded invoices.
           </p>
         </div>
+
+        {onOpenEnquiryChecker && (
+          <button
+            onClick={onOpenEnquiryChecker}
+            className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#541523] hover:bg-[#6E1C30] text-white text-xs font-semibold shadow-sm transition shrink-0 self-start md:self-center"
+          >
+            <ClipboardCheck size={16} className="text-amber-200" />
+            <span>Can I Accept This Order?</span>
+          </button>
+        )}
       </div>
 
       {/* 4 Core Financial Summary Cards */}
@@ -116,9 +135,11 @@ export default function DashboardView({
           <div className="mt-2 text-2xl sm:text-3xl font-serif font-bold text-[#2C181B]">
             {formatINR(totalOrderValue)}
           </div>
-          <div className="mt-1 text-xs text-[#8C7D7D] flex items-center justify-between">
-            <span>{orderOverview.distinctOrdersCount} orders ({orderOverview.totalOrderLines} lines)</span>
-            <span className="text-[#8F243C] font-medium">{orderOverview.openUnitsCount} open units</span>
+          <div className="mt-1 text-xs text-[#8C7D7D] flex items-center justify-between gap-2">
+            <span>{orderOverview.distinctOrdersCount} orders ({orderOverview.openOrderLines} open)</span>
+            <span className="text-[#8F243C] font-medium">
+              {orderOverview.unitsToMake} make · {orderOverview.unitsReadyWaitingDelivery} ready
+            </span>
           </div>
         </div>
 
@@ -131,9 +152,13 @@ export default function DashboardView({
           <div className="mt-2 text-2xl sm:text-3xl font-serif font-bold text-emerald-800">
             {formatINR(totalReceived)}
           </div>
-          <div className="mt-1 text-xs text-[#8C7D7D] flex items-center justify-between">
-            <span>Money received</span>
-            <span className="text-rose-700 font-medium">{formatINR(orderOverview.totalBalanceDue)} due</span>
+          <div className="mt-1 text-xs text-[#8C7D7D] flex flex-wrap items-center justify-between gap-1">
+            <span>Due: {formatINR(orderOverview.totalBalanceDue)}</span>
+            {orderOverview.deliveredUnpaidAmount > 0 && (
+              <span className="text-rose-700 font-semibold">
+                {formatINR(orderOverview.deliveredUnpaidAmount)} delivered unpaid
+              </span>
+            )}
           </div>
         </div>
 
@@ -147,10 +172,10 @@ export default function DashboardView({
             {formatINR(totalExpenses, 2)}
           </div>
           <div className="mt-1 text-xs text-[#8C7D7D] flex items-center justify-between">
-            <span>{purchaseOverview.lineItemCount} items • {purchaseOverview.activePlatformCount} sources</span>
-            <span className="text-amber-700 font-medium">
-              {purchaseOverview.inTransitCount > 0
-                ? `${purchaseOverview.inTransitCount} in transit`
+            <span>{purchaseOverview.lineItemCount} items · {purchaseOverview.inTransitCount} pending</span>
+            <span className="text-rose-700 font-medium">
+              {purchaseOverview.refundChaseCount > 0
+                ? `${purchaseOverview.refundChaseCount} refunds to chase`
                 : 'Live Sheet'}
             </span>
           </div>
@@ -279,15 +304,18 @@ export default function DashboardView({
           </div>
         </div>
 
-        {/* Right Column: Stock Attention */}
+        {/* Right Column: Shopping List & Stock Attention */}
         <div className="bg-white border border-[#E8DDCF] rounded-2xl p-6 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="font-serif text-lg font-bold text-[#2C181B]">
-                  Stock attention
+                <h3 className="font-serif text-lg font-bold text-[#2C181B] flex items-center gap-1.5">
+                  <ShoppingBag size={16} className="text-[#8F243C]" />
+                  <span>Shopping list &amp; stock</span>
                 </h3>
-                <p className="text-xs text-[#7A6E6E]">Items to review</p>
+                <p className="text-xs text-[#7A6E6E]">
+                  {inventory.length} tracked · {ledgerSummary.missingOpeningCount} missing shelf count
+                </p>
               </div>
               <button
                 onClick={onOpenNewStock}
@@ -297,37 +325,50 @@ export default function DashboardView({
               </button>
             </div>
 
-            <div className="space-y-3">
-              {lowStockItems.length === 0 ? (
+            {ledgerSummary.missingOpeningCount > 0 && (
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className="w-full mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-left text-[11px] text-amber-900 hover:bg-amber-100/70 transition flex items-center justify-between"
+              >
+                <span>
+                  ⚠ <strong>{ledgerSummary.missingOpeningCount} materials</strong> still need physical opening shelf counts
+                </span>
+                <span className="font-semibold text-[#541523] shrink-0 ml-2">Enter →</span>
+              </button>
+            )}
+
+            <div className="space-y-2.5">
+              {shoppingList.length === 0 ? (
                 <div className="py-6 text-center text-xs text-emerald-700 bg-emerald-50 rounded-lg">
-                  All inventory healthy. No reorders needed!
+                  All counted inventory healthy. No reorders needed!
                 </div>
               ) : (
-                lowStockItems.slice(0, 6).map((item) => (
+                shoppingList.slice(0, 5).map(({ item, ledger }) => (
                   <div
                     key={item.id}
-                    className="p-3 bg-[#FAF5EE] border border-[#EBDCCB] rounded-xl flex items-center justify-between"
+                    className="p-3 bg-[#FAF5EE] border border-[#EBDCCB] rounded-xl flex items-center justify-between gap-2"
                   >
-                    <div>
-                      <div className="text-xs font-semibold text-[#2C181B]">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-[#2C181B] truncate">
                         {item.name}
                       </div>
                       <div className="text-[11px] text-[#7A6E6E]">
-                        <span className="font-semibold text-rose-700">{item.stock} left</span> — reorder at {item.reorderLevel}
+                        <span className="font-semibold text-rose-700">Free: {ledger.freeAfterOrders} {item.unit}</span>
+                        {ledger.incomingFromPurchases > 0 ? ` · +${ledger.incomingFromPurchases} arriving` : ` — reorder ${item.reorderLevel}`}
                       </div>
                     </div>
-                    <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">
-                      Low
+                    <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200 shrink-0">
+                      {ledger.ledgerStatus === 'LOW' ? `Buy ${ledger.recommendedOrderQty}` : ledger.ledgerStatus}
                     </span>
                   </div>
                 ))
               )}
-              {lowStockItems.length > 6 && (
+              {shoppingList.length > 5 && (
                 <button
                   onClick={() => setActiveTab('inventory')}
                   className="w-full text-center text-xs text-[#8F243C] font-semibold hover:underline pt-1"
                 >
-                  +{lowStockItems.length - 6} more items in Inventory →
+                  +{shoppingList.length - 5} more in Stock Shopping List →
                 </button>
               )}
             </div>

@@ -2,10 +2,12 @@
 
 import React, { useMemo, useState } from 'react';
 import {
+  Expense,
   InventoryItem,
   Order,
   Product,
   RecipeIngredient,
+  StockAdjustment,
 } from '@/lib/types';
 import {
   computeRecipeAndProductSnapshot,
@@ -17,6 +19,7 @@ import { formatINR, round2 } from '@/lib/utils';
 import {
   AlertTriangle,
   CheckCircle2,
+  ClipboardCheck,
   Copy,
   Download,
   Layers,
@@ -32,6 +35,8 @@ interface RecipeViewProps {
   recipes: RecipeIngredient[];
   orders: Order[];
   inventory: InventoryItem[];
+  expenses?: Expense[];
+  adjustments?: StockAdjustment[];
   unitOptions: string[];
   selectedProductName: string | null;
   onSelectProductName: (name: string) => void;
@@ -60,6 +65,7 @@ interface RecipeViewProps {
     materialId: string,
     updates: { stock?: number; avgUnitCost?: number }
   ) => void;
+  onOpenEnquiryChecker?: () => void;
 }
 
 export default function RecipeView({
@@ -67,6 +73,8 @@ export default function RecipeView({
   recipes,
   orders,
   inventory,
+  expenses = [],
+  adjustments = [],
   unitOptions,
   selectedProductName,
   onSelectProductName,
@@ -75,6 +83,7 @@ export default function RecipeView({
   onDeleteIngredient,
   onCloneRecipe,
   onUpdateInventoryMaterial,
+  onOpenEnquiryChecker,
 }: RecipeViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [productFilter, setProductFilter] = useState<'all' | 'has-recipe' | 'needs-recipe' | 'open-demand'>('all');
@@ -92,8 +101,8 @@ export default function RecipeView({
   const [newMatCost, setNewMatCost] = useState('');
 
   const snapshot = useMemo(
-    () => computeRecipeAndProductSnapshot(products, recipes, orders, inventory),
-    [products, recipes, orders, inventory]
+    () => computeRecipeAndProductSnapshot(products, recipes, orders, inventory, expenses, adjustments),
+    [products, recipes, orders, inventory, expenses, adjustments]
   );
 
   // Pick initial active product intelligently
@@ -229,6 +238,15 @@ export default function RecipeView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {onOpenEnquiryChecker && (
+            <button
+              onClick={onOpenEnquiryChecker}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-white text-xs font-semibold transition shadow-sm"
+            >
+              <ClipboardCheck size={14} />
+              <span>Can I Accept Order?</span>
+            </button>
+          )}
           <button
             onClick={handleExportCsv}
             className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg border border-[#D9C9B4] bg-[#FDFBF7] hover:bg-[#F2EBE0] text-xs font-semibold text-[#541523] transition shadow-sm"

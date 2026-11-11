@@ -9,7 +9,9 @@ import { round2 } from './utils';
 const MS_PER_DAY = 86_400_000;
 
 export const PROBLEM_PURCHASE_STATUSES = ['Returned', 'Refund Pending', 'Cancelled'];
+export const REFUND_CHASE_PURCHASE_STATUSES = ['Returned', 'Refund Pending'];
 export const IN_TRANSIT_PURCHASE_STATUSES = ['Ordered', 'Shipped', 'Delayed'];
+export const RECEIVED_STOCK_PURCHASE_STATUSES = ['Delivered', 'Self Pick-Up', 'Rapido', 'Replaced'];
 
 function parseIsoDateUtc(ymd?: string): number | null {
   if (!ymd) return null;
@@ -89,10 +91,12 @@ export interface PurchaseOverview {
   inTransitValue: number;
   lateDeliveryCount: number;
   problemOrderCount: number;
+  refundChaseCount: number;
   problemOrderValue: number;
   avgDaysToDeliver: number | null;
   inTransitExpenses: Expense[];
   problemExpenses: Expense[];
+  refundChaseExpenses: Expense[];
   lateExpenses: Expense[];
 }
 
@@ -111,6 +115,7 @@ export function computePurchaseOverview(expenses: Expense[]): PurchaseOverview {
   const activePlatforms = new Set<string>();
   const inTransitExpenses: Expense[] = [];
   const problemExpenses: Expense[] = [];
+  const refundChaseExpenses: Expense[] = [];
   const lateExpenses: Expense[] = [];
 
   for (const exp of expenses) {
@@ -129,6 +134,11 @@ export function computePurchaseOverview(expenses: Expense[]): PurchaseOverview {
 
     if (m.isLate) {
       lateExpenses.push(exp);
+    }
+
+    const status = (exp.purchaseStatus || 'Delivered').trim();
+    if (REFUND_CHASE_PURCHASE_STATUSES.includes(status)) {
+      refundChaseExpenses.push(exp);
     }
 
     if (m.isInTransit) {
@@ -156,11 +166,13 @@ export function computePurchaseOverview(expenses: Expense[]): PurchaseOverview {
     inTransitValue: round2(inTransitValue),
     lateDeliveryCount: lateExpenses.length,
     problemOrderCount: problemExpenses.length,
+    refundChaseCount: refundChaseExpenses.length,
     problemOrderValue: roundedProblem,
     avgDaysToDeliver:
       deliveredDaysCount > 0 ? round2(deliveredDaysSum / deliveredDaysCount) : null,
     inTransitExpenses,
     problemExpenses,
+    refundChaseExpenses,
     lateExpenses,
   };
 }

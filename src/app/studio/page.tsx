@@ -23,6 +23,7 @@ import NewOrderModal from '@/components/NewOrderModal';
 import NewProductModal from '@/components/NewProductModal';
 import NewStockModal from '@/components/NewStockModal';
 import NewExpenseModal from '@/components/NewExpenseModal';
+import OrderEnquiryCheckerModal from '@/components/OrderEnquiryCheckerModal';
 
 import {
   ActiveTab,
@@ -37,12 +38,14 @@ import {
   OrderStatus,
   MasterListGroup,
   RecipeIngredient,
+  StockAdjustment,
 } from '@/lib/types';
 
 import {
   initialProducts,
   initialOrders,
   initialInventory,
+  initialAdjustments,
   initialRecipes,
   initialCustomers,
   initialSuppliers,
@@ -53,6 +56,8 @@ import {
 } from '@/lib/mockData';
 import {
   buildCustomersFromOrders,
+  computeInventoryLedgerMetrics,
+  getLocalTodayYmd,
   isOrderOpen,
   normalizeNameKey,
 } from '@/lib/oprFormulas';
@@ -66,6 +71,7 @@ export default function Home() {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventory);
+  const [adjustments, setAdjustments] = useState<StockAdjustment[]>(initialAdjustments);
   const [recipes, setRecipes] = useState<RecipeIngredient[]>(initialRecipes);
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
@@ -77,6 +83,7 @@ export default function Home() {
   // Selection & Modal States
   const [selectedRecipeProductName, setSelectedRecipeProductName] = useState<string | null>(null);
   const [selectedOrderForInvoice, setSelectedOrderForInvoice] = useState<Order | null>(null);
+  const [isEnquiryCheckerOpen, setIsEnquiryCheckerOpen] = useState(false);
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isNewProductOpen, setIsNewProductOpen] = useState(false);
@@ -88,9 +95,9 @@ export default function Home() {
   // Hydrate from localStorage on client mount if available
   useEffect(() => {
     try {
-      // Upgrade Orders / Products / Recipes / Inventory once to the audited workbook v3.0_sheet
+      // Upgrade Orders / Products / Recipes / Inventory once to the audited clean workbook v4.0_clean
       const oprVer = localStorage.getItem('vedh_opr_version');
-      if (oprVer === '3.0_sheet') {
+      if (oprVer === '4.0_clean') {
         const savedOrders = localStorage.getItem('vedh_orders');
         const parsedOrders: Order[] = savedOrders ? JSON.parse(savedOrders) : initialOrders;
         setOrders(parsedOrders);
@@ -100,6 +107,9 @@ export default function Home() {
 
         const savedInventory = localStorage.getItem('vedh_inventory');
         if (savedInventory) setInventory(JSON.parse(savedInventory));
+
+        const savedAdjustments = localStorage.getItem('vedh_adjustments');
+        if (savedAdjustments) setAdjustments(JSON.parse(savedAdjustments));
 
         const savedRecipes = localStorage.getItem('vedh_recipes');
         if (savedRecipes) setRecipes(JSON.parse(savedRecipes));
@@ -117,33 +127,35 @@ export default function Home() {
         localStorage.setItem('vedh_orders', JSON.stringify(initialOrders));
         localStorage.setItem('vedh_products', JSON.stringify(initialProducts));
         localStorage.setItem('vedh_inventory', JSON.stringify(initialInventory));
+        localStorage.setItem('vedh_adjustments', JSON.stringify(initialAdjustments));
         localStorage.setItem('vedh_recipes', JSON.stringify(initialRecipes));
         localStorage.setItem('vedh_customers', JSON.stringify(initialCustomers));
         localStorage.setItem('vedh_payments', JSON.stringify(initialPayments));
-        localStorage.setItem('vedh_opr_version', '3.0_sheet');
+        localStorage.setItem('vedh_opr_version', '4.0_clean');
         setOrders(initialOrders);
         setProducts(initialProducts);
         setInventory(initialInventory);
+        setAdjustments(initialAdjustments);
         setRecipes(initialRecipes);
         setCustomers(initialCustomers);
         setPayments(initialPayments);
       }
 
-      // Upgrade placeholder expenses/suppliers once to the audited 131-row Purchase Sheet
+      // Upgrade expenses/suppliers to v4.0_clean with Shipped incoming stock links
       const sheetVer = localStorage.getItem('vedh_expenses_version');
       const savedExpenses = localStorage.getItem('vedh_expenses');
-      if (savedExpenses && sheetVer === '2.0_sheet') {
+      if (savedExpenses && sheetVer === '4.0_clean') {
         setExpenses(JSON.parse(savedExpenses));
       } else {
         localStorage.setItem('vedh_expenses', JSON.stringify(initialExpenses));
-        localStorage.setItem('vedh_expenses_version', '2.0_sheet');
+        localStorage.setItem('vedh_expenses_version', '4.0_clean');
         localStorage.setItem('vedh_suppliers', JSON.stringify(initialSuppliers));
         setExpenses(initialExpenses);
         setSuppliers(initialSuppliers);
       }
 
       const savedSuppliers = localStorage.getItem('vedh_suppliers');
-      if (savedSuppliers && sheetVer === '2.0_sheet') {
+      if (savedSuppliers && sheetVer === '4.0_clean') {
         setSuppliers(JSON.parse(savedSuppliers));
       }
 
@@ -530,15 +542,23 @@ export default function Home() {
 
   const handleUpdateInventoryMaterial = (
     materialId: string,
-    updates: { stock?: number; avgUnitCost?: number }
+    updates: { stock?: number; avgUnitCost?: number; openingStock?: number | null }
   ) => {
     const updated = inventory.map((item) => {
       if (item.id !== materialId) return item;
-      const nextStock = updates.stock !== undefined ? Math.max(0, updates.stock) : item.stock;
+      const nextOpeningStock =
+        'openingStock' in updates ? updates.openingStock : item.openingStock;
+      const nextStock =
+        updates.stock !== undefined
+          ? Math.max(0, updates.stock)
+          : 'openingStock' in updates
+          ? Math.max(0, nextOpeningStock ?? 0)
+          : item.stock;
       const nextStatus: InventoryItem['status'] =
         nextStock <= 0 ? 'Critical' : nextStock <= item.reorderLevel ? 'Low' : 'Healthy';
       return {
         ...item,
+        openingStock: nextOpeningStock,
         stock: nextStock,
         avgUnitCost:
           'avgUnitCost' in updates ? updates.avgUnitCost : item.avgUnitCost,
@@ -559,6 +579,7 @@ export default function Home() {
     const status = stockData.stock <= stockData.reorderLevel ? 'Low' : 'Healthy';
     const newItem: InventoryItem = {
       ...stockData,
+      openingStock: stockData.openingStock !== undefined ? stockData.openingStock : stockData.stock,
       id: `inv-${Date.now()}`,
       status,
     };
@@ -568,31 +589,49 @@ export default function Home() {
     addLog('Product', `Stock registered: ${newItem.name} (${newItem.stock} ${newItem.unit})`);
   };
 
-  const handleAdjustStock = (id: string, delta: number, reason?: string) => {
-    const target = inventory.find((item) => item.id === id);
-    const updated = inventory.map((item) => {
-      if (item.id === id) {
-        const nextStock = Math.max(0, item.stock + delta);
-        const status: InventoryItem['status'] = nextStock <= item.reorderLevel ? 'Low' : 'Healthy';
-        return {
-          ...item,
-          stock: nextStock,
-          status,
-          lastAdjustmentReason: reason || item.lastAdjustmentReason,
-        };
-      }
-      return item;
+  const handleAddAdjustment = (payload: Omit<StockAdjustment, 'id'>) => {
+    const entry: StockAdjustment = {
+      ...payload,
+      id: `adj-${Date.now()}`,
+    };
+    const nextAdjustments = [entry, ...adjustments];
+    setAdjustments(nextAdjustments);
+    persist('vedh_adjustments', nextAdjustments);
+
+    const updatedInv = inventory.map((item) => {
+      if (item.id !== payload.materialId) return item;
+      const nextStock = Math.max(0, round2(item.stock + payload.delta));
+      const status: InventoryItem['status'] =
+        nextStock <= 0 ? 'Critical' : nextStock <= item.reorderLevel ? 'Low' : 'Healthy';
+      return {
+        ...item,
+        stock: nextStock,
+        status,
+        lastAdjustmentReason: payload.reason || item.lastAdjustmentReason,
+      };
     });
-    setInventory(updated);
-    persist('vedh_inventory', updated);
-    if (target) {
-      addLog(
-        'Product',
-        `Stock adjusted for ${target.name} (${delta > 0 ? '+' : ''}${delta} ${target.unit})${
-          reason ? ` — ${reason}` : ''
-        }`
-      );
-    }
+    setInventory(updatedInv);
+    persist('vedh_inventory', updatedInv);
+
+    addLog(
+      'Inventory',
+      `Stock adjusted for ${payload.materialName} (${payload.delta > 0 ? '+' : ''}${payload.delta}) — ${payload.reason}${
+        payload.notes ? ` (${payload.notes})` : ''
+      }`
+    );
+  };
+
+  const handleAdjustStock = (id: string, delta: number, reason?: string, notes?: string) => {
+    const target = inventory.find((item) => item.id === id);
+    if (!target || delta === 0) return;
+    handleAddAdjustment({
+      date: getLocalTodayYmd(),
+      materialId: target.id,
+      materialName: target.name,
+      delta,
+      reason: reason || 'Stock count correction',
+      notes,
+    });
   };
 
   // Expenses / Purchases Handlers
@@ -603,7 +642,7 @@ export default function Home() {
       );
       setExpenses(updated);
       persist('vedh_expenses', updated);
-      persist('vedh_expenses_version', '2.0_sheet');
+      persist('vedh_expenses_version', '4.0_clean');
       addLog('Expense', `Purchase updated: ${expData.title} (₹${expData.amount})`);
       return;
     }
@@ -615,7 +654,7 @@ export default function Home() {
     const updated = [newExpense, ...expenses];
     setExpenses(updated);
     persist('vedh_expenses', updated);
-    persist('vedh_expenses_version', '2.0_sheet');
+    persist('vedh_expenses_version', '4.0_clean');
     addLog(
       'Expense',
       `Purchase recorded (${newExpense.platform || 'Direct'}): ${newExpense.title} (₹${newExpense.amount})`
@@ -647,8 +686,8 @@ export default function Home() {
     setSuppliers(initialSuppliers);
     persist('vedh_expenses', initialExpenses);
     persist('vedh_suppliers', initialSuppliers);
-    persist('vedh_expenses_version', '2.0_sheet');
-    addLog('Expense', 'Reloaded cleaned 131-item Purchase Sheet defaults');
+    persist('vedh_expenses_version', '4.0_clean');
+    addLog('Expense', 'Reloaded cleaned Purchase Sheet defaults');
   };
 
   // Master Lists CRUD Handlers
@@ -873,6 +912,7 @@ export default function Home() {
               products={products}
               inventory={inventory}
               expenses={expenses}
+              adjustments={adjustments}
               recipes={recipes}
               platforms={getActiveOptions('platform')}
               setActiveTab={setActiveTab}
@@ -887,6 +927,7 @@ export default function Home() {
               }}
               onSelectOrderForInvoice={(order) => setSelectedOrderForInvoice(order)}
               onOpenRecipeForProduct={handleOpenRecipeForProduct}
+              onOpenEnquiryChecker={() => setIsEnquiryCheckerOpen(true)}
             />
           )}
 
@@ -896,6 +937,8 @@ export default function Home() {
               products={products}
               recipes={recipes}
               inventory={inventory}
+              expenses={expenses}
+              adjustments={adjustments}
               orderStatuses={getActiveOptions('order_status')}
               onOpenNewOrder={() => {
                 setEditingOrder(null);
@@ -911,6 +954,7 @@ export default function Home() {
               onMarkPaid={handleMarkOrderPaid}
               onSelectOrderForInvoice={(order) => setSelectedOrderForInvoice(order)}
               onOpenRecipeForProduct={handleOpenRecipeForProduct}
+              onOpenEnquiryChecker={() => setIsEnquiryCheckerOpen(true)}
             />
           )}
 
@@ -939,6 +983,8 @@ export default function Home() {
               recipes={recipes}
               orders={orders}
               inventory={inventory}
+              expenses={expenses}
+              adjustments={adjustments}
               unitOptions={getActiveOptions('unit')}
               selectedProductName={selectedRecipeProductName}
               onSelectProductName={(name) => setSelectedRecipeProductName(name)}
@@ -947,6 +993,7 @@ export default function Home() {
               onDeleteIngredient={handleDeleteRecipeIngredient}
               onCloneRecipe={handleCloneRecipe}
               onUpdateInventoryMaterial={handleUpdateInventoryMaterial}
+              onOpenEnquiryChecker={() => setIsEnquiryCheckerOpen(true)}
             />
           )}
 
@@ -956,10 +1003,14 @@ export default function Home() {
               products={products}
               recipes={recipes}
               orders={orders}
+              expenses={expenses}
+              adjustments={adjustments}
               adjustmentReasons={getActiveOptions('adjustment_reason')}
               onOpenNewStock={() => setIsNewStockOpen(true)}
               onAdjustStock={handleAdjustStock}
               onUpdateInventoryMaterial={handleUpdateInventoryMaterial}
+              onAddAdjustment={handleAddAdjustment}
+              onOpenEnquiryChecker={() => setIsEnquiryCheckerOpen(true)}
             />
           )}
 
@@ -1097,11 +1148,25 @@ export default function Home() {
           categories={getActiveOptions('category')}
           paymentModes={getActiveOptions('payment_mode')}
           purchaseStatuses={getActiveOptions('purchase_status')}
+          stockItemOptions={inventory.map((i) => i.name)}
           onClose={() => {
             setIsNewExpenseOpen(false);
             setEditingExpense(null);
           }}
           onSave={handleSaveExpense}
+        />
+      )}
+
+      {isEnquiryCheckerOpen && (
+        <OrderEnquiryCheckerModal
+          products={products}
+          recipes={recipes}
+          inventory={inventory}
+          ledgerByMaterialKey={
+            computeInventoryLedgerMetrics(inventory, recipes, orders, expenses, adjustments, products)
+              .ledgerByMaterialKey
+          }
+          onClose={() => setIsEnquiryCheckerOpen(false)}
         />
       )}
     </div>

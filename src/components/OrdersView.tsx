@@ -2,11 +2,13 @@
 
 import React, { useMemo, useState } from 'react';
 import {
+  Expense,
   InventoryItem,
   Order,
   OrderStatus,
   Product,
   RecipeIngredient,
+  StockAdjustment,
 } from '@/lib/types';
 import {
   buildCombinedInvoiceOrder,
@@ -20,6 +22,7 @@ import { formatINR } from '@/lib/utils';
 import {
   AlertTriangle,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   Download,
   Edit3,
@@ -37,6 +40,8 @@ interface OrdersViewProps {
   products: Product[];
   recipes: RecipeIngredient[];
   inventory: InventoryItem[];
+  expenses?: Expense[];
+  adjustments?: StockAdjustment[];
   orderStatuses: string[];
   onOpenNewOrder: () => void;
   onEditOrder: (order: Order) => void;
@@ -46,6 +51,7 @@ interface OrdersViewProps {
   onMarkPaid: (id: string) => void;
   onSelectOrderForInvoice: (order: Order) => void;
   onOpenRecipeForProduct?: (productName: string) => void;
+  onOpenEnquiryChecker?: () => void;
 }
 
 export default function OrdersView({
@@ -53,6 +59,8 @@ export default function OrdersView({
   products,
   recipes,
   inventory,
+  expenses = [],
+  adjustments = [],
   orderStatuses,
   onOpenNewOrder,
   onEditOrder,
@@ -62,15 +70,16 @@ export default function OrdersView({
   onMarkPaid,
   onSelectOrderForInvoice,
   onOpenRecipeForProduct,
+  onOpenEnquiryChecker,
 }: OrdersViewProps) {
   const [statusFilter, setStatusFilter] = useState<'All' | OrderStatus>('All');
-  const [smartFilter, setSmartFilter] = useState<'all' | 'unpaid' | 'due' | 'recipe-alert'>('all');
+  const [smartFilter, setSmartFilter] = useState<'all' | 'unpaid' | 'delivered-unpaid' | 'due' | 'recipe-alert'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'lines' | 'grouped'>('lines');
 
   const snapshot = useMemo(
-    () => computeRecipeAndProductSnapshot(products, recipes, orders, inventory),
-    [products, recipes, orders, inventory]
+    () => computeRecipeAndProductSnapshot(products, recipes, orders, inventory, expenses, adjustments),
+    [products, recipes, orders, inventory, expenses, adjustments]
   );
 
   const overview = useMemo(
@@ -90,6 +99,9 @@ export default function OrdersView({
     return rowsWithMetrics.filter(({ order, metrics }) => {
       if (statusFilter !== 'All' && order.status !== statusFilter) return false;
       if (smartFilter === 'unpaid' && metrics.paymentState === 'Paid') return false;
+      if (smartFilter === 'delivered-unpaid' && (order.status !== 'Delivered' || metrics.balanceDue <= 0)) {
+        return false;
+      }
       if (smartFilter === 'due' && !metrics.dueAlert) return false;
       if (
         smartFilter === 'recipe-alert' &&
@@ -173,6 +185,15 @@ export default function OrdersView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {onOpenEnquiryChecker && (
+            <button
+              onClick={onOpenEnquiryChecker}
+              className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg border border-[#D9C9B4] bg-[#FDFBF7] hover:bg-[#F2EBE0] text-xs font-semibold text-[#541523] transition shadow-sm"
+            >
+              <ClipboardCheck size={14} />
+              <span>Can I Accept?</span>
+            </button>
+          )}
           <button
             onClick={handleExportCsv}
             className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg border border-[#D9C9B4] bg-[#FDFBF7] hover:bg-[#F2EBE0] text-xs font-semibold text-[#541523] transition shadow-sm"
@@ -219,14 +240,20 @@ export default function OrdersView({
             {formatINR(overview.totalBalanceDue)}
           </p>
           <p className="text-[11px] text-[#8C7D7D] mt-0.5">
-            {overview.unpaidCount} unpaid lines ({formatINR(overview.openBalanceDue)} on open)
+            {overview.unpaidCount} unpaid ·{' '}
+            <button
+              onClick={() => setSmartFilter('delivered-unpaid')}
+              className="text-rose-700 font-semibold hover:underline"
+            >
+              {formatINR(overview.deliveredUnpaidAmount)} delivered unpaid
+            </button>
           </p>
         </div>
 
         <div className="bg-white border border-[#E8DDCF] rounded-xl p-4 shadow-sm">
           <p className="text-[11px] text-[#7A6E6E] font-medium">Open Production Units</p>
           <p className="text-2xl font-serif font-bold text-[#A67E1F] mt-1">
-            {overview.openUnitsCount} <span className="text-xs font-normal text-[#8C7D7D]">units ({overview.openOrderLines} lines)</span>
+            {overview.openUnitsCount} <span className="text-xs font-normal text-[#8C7D7D]">({overview.unitsToMake} make · {overview.unitsReadyWaitingDelivery} ready)</span>
           </p>
           <p className="text-[11px] text-[#8C7D7D] mt-0.5">
             {overview.dueSoonCount + overview.overdueCount} due/overdue · {overview.missingRecipeOpenCount} need recipe
@@ -254,6 +281,7 @@ export default function OrdersView({
               {[
                 { id: 'all', label: 'All Lines' },
                 { id: 'unpaid', label: 'Unpaid / Partial' },
+                { id: 'delivered-unpaid', label: 'Delivered Unpaid' },
                 { id: 'due', label: 'Due Soon / Overdue' },
                 { id: 'recipe-alert', label: 'Recipe / Stock Alert' },
               ].map((item) => (

@@ -1,7 +1,11 @@
 import {
   Customer,
+  EnquiryCheckResult,
+  EnquiryItem,
+  EnquiryMaterialRow,
   Expense,
   InventoryItem,
+  InventoryLedgerMetrics,
   Order,
   OrderComputedMetrics,
   OrderOverviewMetrics,
@@ -9,8 +13,13 @@ import {
   ProductEconomics,
   RecipeIngredient,
   RecipeIngredientMetrics,
+  StockAdjustment,
 } from './types';
-import { diffCalendarDays } from './purchaseFormulas';
+import {
+  diffCalendarDays,
+  IN_TRANSIT_PURCHASE_STATUSES,
+  RECEIVED_STOCK_PURCHASE_STATUSES,
+} from './purchaseFormulas';
 import { round2 } from './utils';
 
 export const OPEN_ORDER_STATUSES = ['New', 'In Production', 'Ready'];
@@ -29,6 +38,74 @@ export function getLocalTodayYmd(referenceDate = new Date()): string {
 
 export function isOrderOpen(status: string): boolean {
   return OPEN_ORDER_STATUSES.includes(status);
+}
+
+function resolvePurchaseUnits(exp: Expense): number {
+  if (typeof exp.stockQtyReceived === 'number' && !Number.isNaN(exp.stockQtyReceived) && exp.stockQtyReceived > 0) {
+    return round2(exp.stockQtyReceived);
+  }
+  const qty = Number(exp.qty) || 0;
+  const pack = Number(exp.piecesPerPack) || 1;
+  return round2(qty * (pack > 0 ? pack : 1));
+}
+
+export interface PurchaseAndAdjustmentFlow {
+  receivedByKey: Record<string, number>;
+  incomingByKey: Record<string, number>;
+  adjustmentsByKey: Record<string, number>;
+}
+
+/**
+ * Aggregates post-count received stock, incoming shipments (Ordered/Shipped/Delayed),
+ * and manual Stock Adjustments per normalized material key.
+ */
+export function computePurchaseAndAdjustmentFlow(
+  expenses: Expense[] = [],
+  adjustments: StockAdjustment[] = [],
+  inventory: InventoryItem[] = []
+): PurchaseAndAdjustmentFlow {
+  const receivedByKey: Record<string, number> = {};
+  const incomingByKey: Record<string, number> = {};
+  const adjustmentsByKey: Record<string, number> = {};
+  const invIdToKey = new Map(inventory.map((i) => [i.id, normalizeNameKey(i.name)]));
+
+  for (const exp of expenses) {
+    const matKey = normalizeNameKey(exp.stockItem);
+    if (!matKey) continue;
+    const units = resolvePurchaseUnits(exp);
+    if (units <= 0) continue;
+
+    const status = (exp.purchaseStatus ?? 'Delivered').trim();
+    if (IN_TRANSIT_PURCHASE_STATUSES.includes(status)) {
+      incomingByKey[matKey] = round2((incomingByKey[matKey] ?? 0) + units);
+    } else if (exp.appliedToStock === true && RECEIVED_STOCK_PURCHASE_STATUSES.includes(status)) {
+      receivedByKey[matKey] = round2((receivedByKey[matKey] ?? 0) + units);
+    }
+  }
+
+  for (const adj of adjustments) {
+    const matKey = invIdToKey.get(adj.materialId) ?? normalizeNameKey(adj.materialName);
+    if (!matKey) continue;
+    const delta = Number(adj.delta) || 0;
+    adjustmentsByKey[matKey] = round2((adjustmentsByKey[matKey] ?? 0) + delta);
+  }
+
+  return { receivedByKey, incomingByKey, adjustmentsByKey };
+}
+
+/**
+ * Computes effective Physical In Hand = Opening Count + Received (post-count purchases) + Adjustments.
+ * Falls back to `inv.stock` when `openingStock` is undefined for backward compatibility.
+ */
+export function resolveEffectivePhysicalStock(
+  inv: InventoryItem,
+  flow: PurchaseAndAdjustmentFlow
+): number {
+  const matKey = normalizeNameKey(inv.name);
+  const opening = inv.openingStock === undefined ? inv.stock : inv.openingStock ?? 0;
+  const received = flow.receivedByKey[matKey] ?? 0;
+  const adj = flow.adjustmentsByKey[matKey] ?? 0;
+  return round2(opening + received + adj);
 }
 
 /**
@@ -66,9 +143,7 @@ export function computePurchaseWeightedCostForMaterial(
     if (normalizeNameKey(exp.stockItem) !== targetKey) continue;
     const status = (exp.purchaseStatus ?? '').trim();
     if (status === 'Cancelled' || status === 'Returned') continue;
-    const qty = exp.qty ?? 0;
-    const pack = exp.piecesPerPack ?? 1;
-    const units = qty * (pack > 0 ? pack : 1);
+    const units = resolvePurchaseUnits(exp);
     const cost = exp.amount ?? 0;
     if (units > 0 && cost > 0) {
       totalUnits += units;
@@ -89,14 +164,21 @@ export interface RecipeSystemSnapshot {
 
 /**
  * Computes live cross-sheet demand, stock checks, reserved quantities, landed material cost,
- * and product margins across Orders + Products + Recipes + Inventory.
+ * and product margins across Orders + Products + Recipes + Inventory (+ Purchases & Adjustments).
  */
 export function computeRecipeAndProductSnapshot(
   products: Product[],
   recipes: RecipeIngredient[],
   orders: Order[],
-  inventory: InventoryItem[]
+  inventory: InventoryItem[],
+  expenses: Expense[] = [],
+  adjustments: StockAdjustment[] = []
 ): RecipeSystemSnapshot {
+  const flow = computePurchaseAndAdjustmentFlow(expenses, adjustments, inventory);
+  const physicalByMatKey: Record<string, number> = {};
+  for (const inv of inventory) {
+    physicalByMatKey[normalizeNameKey(inv.name)] = resolveEffectivePhysicalStock(inv, flow);
+  }
   const totalOrderedByProd: Record<string, number> = {};
   const countedOrderedByProd: Record<string, number> = {};
   const consumedByProd: Record<string, number> = {};
@@ -147,7 +229,8 @@ export function computeRecipeAndProductSnapshot(
   for (const inv of inventory) {
     const matKey = normalizeNameKey(inv.name);
     const reserved = reservedByMaterialKey[matKey] ?? 0;
-    freeByMaterialKey[matKey] = round2(inv.stock - reserved);
+    const physical = physicalByMatKey[matKey] ?? inv.stock;
+    freeByMaterialKey[matKey] = round2(physical - reserved);
   }
 
   // Pass 2: detailed per-ingredient metrics
@@ -169,9 +252,9 @@ export function computeRecipeAndProductSnapshot(
 
     const inv = findLinkedInventoryItem(ing, inventory);
     const matKey = normalizeNameKey(inv?.name ?? ing.materialName);
-    const stockAvailable = inv ? round2(inv.stock) : 0;
+    const stockAvailable = inv ? round2(physicalByMatKey[matKey] ?? inv.stock) : 0;
     const totalReservedForMat = reservedByMaterialKey[matKey] ?? neededForOrders;
-    const freeAfterOrders = inv ? round2(inv.stock - totalReservedForMat) : round2(-totalReservedForMat);
+    const freeAfterOrders = inv ? round2(stockAvailable - totalReservedForMat) : round2(-totalReservedForMat);
 
     const avgUnitCost =
       typeof ing.overrideUnitCost === 'number' && !Number.isNaN(ing.overrideUnitCost)
@@ -347,7 +430,10 @@ export function computeOrderOverview(
   let totalUnitsOrdered = 0;
   let openOrderLines = 0;
   let openUnitsCount = 0;
+  let unitsToMake = 0;
+  let unitsReadyWaitingDelivery = 0;
   let openBalanceDue = 0;
+  let deliveredUnpaidAmount = 0;
   let dueSoonCount = 0;
   let overdueCount = 0;
   let unpaidCount = 0;
@@ -373,6 +459,14 @@ export function computeOrderOverview(
     else if (m.paymentState === 'Partial') partialCount += 1;
     else paidCount += 1;
 
+    if (order.status === 'New' || order.status === 'In Production') {
+      unitsToMake += m.qty;
+    } else if (order.status === 'Ready') {
+      unitsReadyWaitingDelivery += m.qty;
+    } else if (order.status === 'Delivered' && m.balanceDue > 0) {
+      deliveredUnpaidAmount = round2(deliveredUnpaidAmount + m.balanceDue);
+    }
+
     if (m.isOpen) {
       openOrderLines += 1;
       openUnitsCount += m.qty;
@@ -393,7 +487,10 @@ export function computeOrderOverview(
     totalUnitsOrdered,
     openOrderLines,
     openUnitsCount,
+    unitsToMake,
+    unitsReadyWaitingDelivery,
     openBalanceDue,
+    deliveredUnpaidAmount,
     dueSoonCount,
     overdueCount,
     unpaidCount,
@@ -401,6 +498,276 @@ export function computeOrderOverview(
     paidCount,
     missingRecipeOpenCount,
     shortageCount,
+  };
+}
+
+export interface ShoppingListEntry {
+  item: InventoryItem;
+  ledger: InventoryLedgerMetrics;
+}
+
+export interface InventoryLedgerSummary {
+  ledgerById: Record<string, InventoryLedgerMetrics>;
+  ledgerByMaterialKey: Record<string, InventoryLedgerMetrics>;
+  shoppingList: ShoppingListEntry[];
+  missingOpeningCount: number;
+  shortCount: number;
+  shortArrivingCount: number;
+  lowCount: number;
+}
+
+/**
+ * Full workbook Stock ledger engine:
+ * Physical In Hand = Opening + Received (post-count purchases) + Adjustments
+ * Free After Orders = Physical In Hand - Committed to Orders
+ * Free Incl. Incoming = Free After Orders + On Order (Ordered/Shipped/Delayed purchases)
+ */
+export function computeInventoryLedgerMetrics(
+  inventory: InventoryItem[],
+  recipes: RecipeIngredient[],
+  orders: Order[],
+  expenses: Expense[] = [],
+  adjustments: StockAdjustment[] = [],
+  products: Product[] = []
+): InventoryLedgerSummary {
+  const flow = computePurchaseAndAdjustmentFlow(expenses, adjustments, inventory);
+  const snapshot = computeRecipeAndProductSnapshot(products, recipes, orders, inventory, expenses, adjustments);
+
+  const ledgerById: Record<string, InventoryLedgerMetrics> = {};
+  const ledgerByMaterialKey: Record<string, InventoryLedgerMetrics> = {};
+  const shoppingList: ShoppingListEntry[] = [];
+
+  let missingOpeningCount = 0;
+  let shortCount = 0;
+  let shortArrivingCount = 0;
+  let lowCount = 0;
+
+  for (const inv of inventory) {
+    const matKey = normalizeNameKey(inv.name);
+    const needsOpeningCount = inv.openingStock === null;
+    const openingStock = inv.openingStock === undefined ? inv.stock : inv.openingStock;
+    const receivedFromPurchases = flow.receivedByKey[matKey] ?? 0;
+    const adjustmentsTotal = flow.adjustmentsByKey[matKey] ?? 0;
+    const physicalInHand = resolveEffectivePhysicalStock(inv, flow);
+    const committedToOrders = snapshot.reservedByMaterialKey[matKey] ?? 0;
+    const freeAfterOrders = round2(physicalInHand - committedToOrders);
+    const incomingFromPurchases = flow.incomingByKey[matKey] ?? 0;
+    const freeInclIncoming = round2(freeAfterOrders + incomingFromPurchases);
+
+    if (needsOpeningCount) missingOpeningCount += 1;
+
+    let ledgerStatus: InventoryLedgerMetrics['ledgerStatus'];
+    if (freeAfterOrders < 0 && freeInclIncoming >= 0) {
+      ledgerStatus = 'Short - stock arriving';
+      shortArrivingCount += 1;
+    } else if (freeAfterOrders < 0) {
+      ledgerStatus = 'SHORT';
+      shortCount += 1;
+    } else if (needsOpeningCount) {
+      ledgerStatus = 'Enter opening count';
+    } else if (inv.reorderLevel > 0 && freeInclIncoming <= inv.reorderLevel) {
+      ledgerStatus = 'LOW';
+      lowCount += 1;
+    } else {
+      ledgerStatus = 'OK';
+    }
+
+    const shortByAfterIncoming = round2(Math.max(0, -freeInclIncoming));
+    const recommendedOrderQty =
+      ledgerStatus === 'SHORT'
+        ? round2(Math.max(shortByAfterIncoming, (inv.reorderLevel || 0) - freeInclIncoming))
+        : ledgerStatus === 'LOW'
+        ? round2(Math.max(0, (inv.reorderLevel || 0) - freeInclIncoming))
+        : 0;
+    const estRestockCost =
+      recommendedOrderQty > 0 && typeof inv.avgUnitCost === 'number' && !Number.isNaN(inv.avgUnitCost)
+        ? round2(recommendedOrderQty * inv.avgUnitCost)
+        : null;
+
+    const ledger: InventoryLedgerMetrics = {
+      openingStock,
+      receivedFromPurchases,
+      adjustmentsTotal,
+      physicalInHand,
+      committedToOrders,
+      freeAfterOrders,
+      incomingFromPurchases,
+      freeInclIncoming,
+      needsOpeningCount,
+      ledgerStatus,
+      shortByAfterIncoming,
+      recommendedOrderQty,
+      estRestockCost,
+    };
+
+    ledgerById[inv.id] = ledger;
+    ledgerByMaterialKey[matKey] = ledger;
+
+    if (ledgerStatus === 'SHORT' || ledgerStatus === 'Short - stock arriving' || ledgerStatus === 'LOW') {
+      shoppingList.push({ item: inv, ledger });
+    }
+  }
+
+  const priorityOrder: Record<InventoryLedgerMetrics['ledgerStatus'], number> = {
+    SHORT: 0,
+    'Short - stock arriving': 1,
+    LOW: 2,
+    'Enter opening count': 3,
+    OK: 4,
+  };
+  shoppingList.sort(
+    (a, b) =>
+      priorityOrder[a.ledger.ledgerStatus] - priorityOrder[b.ledger.ledgerStatus] ||
+      a.item.name.localeCompare(b.item.name)
+  );
+
+  return {
+    ledgerById,
+    ledgerByMaterialKey,
+    shoppingList,
+    missingOpeningCount,
+    shortCount,
+    shortArrivingCount,
+    lowCount,
+  };
+}
+
+/**
+ * Evaluates "Can I accept this order?" for a prospective customer enquiry without mutating
+ * real inventory or saved orders. Deduplicates materials shared across multiple products cleanly.
+ */
+export function evaluateOrderEnquiry(
+  enquiryItems: EnquiryItem[],
+  products: Product[],
+  recipes: RecipeIngredient[],
+  ledgerByMaterialKey: Record<string, InventoryLedgerMetrics>,
+  inventory: InventoryItem[]
+): EnquiryCheckResult {
+  const activeItems = enquiryItems.filter((item) => (item.productId || item.productName) && item.quantity > 0);
+  if (activeItems.length === 0) {
+    return {
+      verdict: 'EMPTY',
+      missingRecipeProducts: [],
+      rows: [],
+      totalEstBuyCost: 0,
+    };
+  }
+
+  const prodById = new Map(products.map((p) => [p.id, p]));
+  const invByKey = new Map(inventory.map((i) => [normalizeNameKey(i.name), i]));
+
+  const missingRecipeProducts: string[] = [];
+  const neededAcc = new Map<
+    string,
+    { materialId: string; materialName: string; unit: string; needed: number; inv?: InventoryItem }
+  >();
+
+  for (const item of activeItems) {
+    const resolvedName = prodById.get(item.productId)?.name || item.productName;
+    const pKey = normalizeNameKey(resolvedName);
+    const prodRecipes = recipes.filter((r) => normalizeNameKey(r.productName) === pKey);
+
+    if (prodRecipes.length === 0) {
+      if (resolvedName && !missingRecipeProducts.includes(resolvedName)) {
+        missingRecipeProducts.push(resolvedName);
+      }
+      continue;
+    }
+
+    for (const ing of prodRecipes) {
+      const inv = findLinkedInventoryItem(ing, inventory);
+      const canonicalName = inv?.name ?? ing.materialName;
+      const matKey = normalizeNameKey(canonicalName);
+      const qtyNeeded = round2(ing.qtyPerUnit * item.quantity);
+
+      const existing = neededAcc.get(matKey);
+      if (existing) {
+        existing.needed = round2(existing.needed + qtyNeeded);
+      } else {
+        neededAcc.set(matKey, {
+          materialId: inv?.id ?? ing.materialId,
+          materialName: canonicalName,
+          unit: inv?.unit ?? ing.unit,
+          needed: qtyNeeded,
+          inv: inv ?? invByKey.get(matKey),
+        });
+      }
+    }
+  }
+
+  const rows: EnquiryMaterialRow[] = [];
+  let totalEstBuyCost = 0;
+  let anyBuy = false;
+  let anyArriving = false;
+
+  for (const [matKey, entry] of neededAcc.entries()) {
+    const ledger = ledgerByMaterialKey[matKey];
+    const freeNow = ledger ? ledger.freeAfterOrders : round2(entry.inv?.stock ?? 0);
+    const incoming = ledger ? ledger.incomingFromPurchases : 0;
+    const leftAfterEnquiry = round2(freeNow - entry.needed);
+
+    let status: EnquiryMaterialRow['status'] = 'OK';
+    let toBuy = 0;
+    if (leftAfterEnquiry < 0) {
+      toBuy = round2(Math.max(0, -(leftAfterEnquiry + incoming)));
+      if (toBuy > 0) {
+        status = 'BUY';
+        anyBuy = true;
+      } else {
+        status = 'ARRIVING';
+        anyArriving = true;
+      }
+    }
+
+    const avgUnitCost =
+      typeof entry.inv?.avgUnitCost === 'number' && !Number.isNaN(entry.inv.avgUnitCost)
+        ? round2(entry.inv.avgUnitCost)
+        : null;
+    const estCost = toBuy > 0 && avgUnitCost !== null ? round2(toBuy * avgUnitCost) : null;
+    if (estCost !== null) {
+      totalEstBuyCost = round2(totalEstBuyCost + estCost);
+    }
+
+    rows.push({
+      materialId: entry.materialId,
+      materialName: entry.materialName,
+      unit: entry.unit,
+      neededForEnquiry: entry.needed,
+      freeNow,
+      leftAfterEnquiry,
+      incoming,
+      toBuy,
+      avgUnitCost,
+      estCost,
+      status,
+    });
+  }
+
+  const rowPriority: Record<EnquiryMaterialRow['status'], number> = {
+    BUY: 0,
+    ARRIVING: 1,
+    OK: 2,
+  };
+  rows.sort((a, b) => rowPriority[a.status] - rowPriority[b.status] || a.materialName.localeCompare(b.materialName));
+
+  let verdict: EnquiryCheckResult['verdict'];
+  if (anyBuy) {
+    verdict = 'BUY_FIRST';
+  } else if (anyArriving) {
+    verdict = 'OK_WITH_INCOMING';
+  } else if (missingRecipeProducts.length > 0 && rows.length === 0) {
+    verdict = 'MISSING_RECIPE';
+  } else if (missingRecipeProducts.length > 0) {
+    verdict = 'MISSING_RECIPE';
+  } else {
+    verdict = 'YES';
+  }
+
+  return {
+    verdict,
+    missingRecipeProducts,
+    rows,
+    totalEstBuyCost,
   };
 }
 

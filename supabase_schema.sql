@@ -29,6 +29,7 @@ create table if not exists public.inventory (
     name text not null,
     type text not null check (type in ('Finished Good', 'Raw Material', 'Packaging')),
     category text,
+    opening_stock numeric(12, 2),
     stock numeric(12, 2) default 0 check (stock >= 0),
     unit text not null default 'pcs',
     reorder_level numeric(12, 2) default 5 check (reorder_level >= 0),
@@ -131,6 +132,8 @@ create table if not exists public.expenses (
     image_ref text,
     contact_details text,
     stock_item text,
+    stock_qty_received numeric(12, 2),
+    applied_to_stock boolean default false,
     notes text,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -168,6 +171,18 @@ create table if not exists public.recipes (
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- 12. STOCK ADJUSTMENTS LEDGER TABLE
+create table if not exists public.stock_adjustments (
+    id uuid default uuid_generate_v4() primary key,
+    adjustment_date date default current_date not null,
+    material_id uuid references public.inventory(id) on delete set null,
+    material_name text not null,
+    delta numeric(12, 2) not null,
+    reason text not null,
+    notes text,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
 -- ROW LEVEL SECURITY (RLS) POLICIES
 alter table public.products enable row level security;
 alter table public.inventory enable row level security;
@@ -180,6 +195,7 @@ alter table public.expenses enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.master_lists enable row level security;
 alter table public.recipes enable row level security;
+alter table public.stock_adjustments enable row level security;
 
 -- Default open access for authenticated studio users:
 create policy "Allow authenticated full access to products" on public.products for all using (auth.role() = 'authenticated');
@@ -192,3 +208,4 @@ create policy "Allow authenticated full access to suppliers" on public.suppliers
 create policy "Allow authenticated full access to audit_logs" on public.audit_logs for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to master_lists" on public.master_lists for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to recipes" on public.recipes for all using (auth.role() = 'authenticated');
+create policy "Allow authenticated full access to stock_adjustments" on public.stock_adjustments for all using (auth.role() = 'authenticated');
