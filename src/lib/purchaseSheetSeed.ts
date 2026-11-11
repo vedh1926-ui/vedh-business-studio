@@ -815,9 +815,11 @@ export const initialPurchaseExpenses: Expense[] = [
     "supplierName": "Luxury Deco",
     "paymentMode": "UPI",
     "purchaseStatus": "Self Pick-Up",
-    "invoiceNo": "Luxury Deco",
-    "receiptFile": "OrdLuxuryDeco LeafFlower moulds.jpeg",
-    "imageRef": "ImgLuxuryDeco LeafFlower moulds.jpeg"
+    "invoiceNo": "Luxury Deco #14901",
+    "receiptFile": "LuxuryDeco_Order_14901.png",
+    "receiptUrl": "/purchases/bills/luxury-deco-14901.png",
+    "imageRef": "Leaf Mould.png",
+    "imageUrl": "/purchases/products/order-14901/leaf-mould.png"
   },
   {
     "id": "pur-088",
@@ -836,9 +838,11 @@ export const initialPurchaseExpenses: Expense[] = [
     "supplierName": "Luxury Deco",
     "paymentMode": "UPI",
     "purchaseStatus": "Self Pick-Up",
-    "invoiceNo": "Luxury Deco",
-    "receiptFile": "OrdLuxuryDeco LeafFlower moulds.jpeg",
-    "imageRef": "ImgLuxuryDeco LeafFlower moulds.jpeg"
+    "invoiceNo": "Luxury Deco #14901",
+    "receiptFile": "LuxuryDeco_Order_14901.png",
+    "receiptUrl": "/purchases/bills/luxury-deco-14901.png",
+    "imageRef": "flower mould.png",
+    "imageUrl": "/purchases/products/order-14901/flower-mould.png"
   },
   {
     "id": "pur-089",
@@ -858,9 +862,11 @@ export const initialPurchaseExpenses: Expense[] = [
     "supplierName": "Luxury Deco",
     "paymentMode": "UPI",
     "purchaseStatus": "Self Pick-Up",
-    "invoiceNo": "Luxury Deco",
-    "receiptFile": "OrdLuxuryDeco LeafFlower moulds.jpeg",
-    "imageRef": "ImgLuxuryDeco LeafFlower moulds.jpeg"
+    "invoiceNo": "Luxury Deco #14901",
+    "receiptFile": "LuxuryDeco_Order_14901.png",
+    "receiptUrl": "/purchases/bills/luxury-deco-14901.png",
+    "imageRef": "Blossom Flower Candle Mould LD 39-29.png",
+    "imageUrl": "/purchases/products/order-14901/blossom-flower-candle-mould-ld-39-29.png"
   },
   {
     "id": "pur-093",

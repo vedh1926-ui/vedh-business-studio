@@ -182,6 +182,7 @@ export default function Home() {
       const savedExpenses = localStorage.getItem('vedh_expenses');
       const seeded14290 = readVersionFlag('vedh_luxury14290_seeded') === '1';
       const seeded14507 = readVersionFlag('vedh_luxury14507_seeded') === '1';
+      const seeded14901Media = readVersionFlag('vedh_luxury14901_media_seeded') === '1';
       const incrementalOrderSeeds: Array<{
         flagKey: string;
         alreadySeeded: boolean;
@@ -227,6 +228,32 @@ export default function Home() {
           writeVersionFlag(seed.flagKey, '1');
         }
 
+        if (!seeded14901Media) {
+          const seed14901ById = new Map(
+            initialExpenses
+              .filter((e) => e.id === 'pur-087' || e.id === 'pur-088' || e.id === 'pur-089')
+              .map((e) => [e.id, e])
+          );
+          loadedExpenses = loadedExpenses.map((exp) => {
+            const src = seed14901ById.get(exp.id);
+            if (!src) return exp;
+            const next = { ...exp };
+            if (!next.receiptMediaId && !next.receiptUrl && src.receiptUrl) {
+              next.receiptFile = src.receiptFile;
+              next.receiptUrl = src.receiptUrl;
+              next.invoiceNo = src.invoiceNo;
+              modifiedExpenses = true;
+            }
+            if (!next.imageMediaId && !next.imageUrl && src.imageUrl) {
+              next.imageRef = src.imageRef;
+              next.imageUrl = src.imageUrl;
+              modifiedExpenses = true;
+            }
+            return next;
+          });
+          writeVersionFlag('vedh_luxury14901_media_seeded', '1');
+        }
+
         if (modifiedExpenses) {
           persistStudioKey('vedh_expenses', loadedExpenses);
         }
@@ -236,6 +263,7 @@ export default function Home() {
         writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
         writeVersionFlag('vedh_luxury14290_seeded', '1');
         writeVersionFlag('vedh_luxury14507_seeded', '1');
+        writeVersionFlag('vedh_luxury14901_media_seeded', '1');
         localStorage.setItem('vedh_suppliers', JSON.stringify(initialSuppliers));
         setExpenses(initialExpenses);
         setSuppliers(initialSuppliers);
@@ -899,6 +927,7 @@ export default function Home() {
     writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
     writeVersionFlag('vedh_luxury14290_seeded', '1');
     writeVersionFlag('vedh_luxury14507_seeded', '1');
+    writeVersionFlag('vedh_luxury14901_media_seeded', '1');
     addLog('Expense', 'Reloaded cleaned Purchase Sheet defaults');
     showToast('Reloaded default Purchase Sheet');
   };
