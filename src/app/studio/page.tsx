@@ -62,7 +62,10 @@ import {
   normalizeNameKey,
 } from '@/lib/oprFormulas';
 import { round2 } from '@/lib/utils';
-import { luxuryDecoOrder14290Expenses } from '@/lib/purchaseSheetSeed';
+import {
+  luxuryDecoOrder14290Expenses,
+  luxuryDecoOrder14507Expenses,
+} from '@/lib/purchaseSheetSeed';
 import { normalizeOrderNumberKey } from '@/lib/purchaseMediaStore';
 import { PurchaseMediaUpdateItem } from '@/components/PurchaseMediaModals';
 import {
@@ -178,34 +181,61 @@ export default function Home() {
       const sheetVer = readVersionFlag('vedh_expenses_version');
       const savedExpenses = localStorage.getItem('vedh_expenses');
       const seeded14290 = readVersionFlag('vedh_luxury14290_seeded') === '1';
+      const seeded14507 = readVersionFlag('vedh_luxury14507_seeded') === '1';
+      const incrementalOrderSeeds: Array<{
+        flagKey: string;
+        alreadySeeded: boolean;
+        cutoffDate: string;
+        items: Expense[];
+      }> = [
+        {
+          flagKey: 'vedh_luxury14290_seeded',
+          alreadySeeded: seeded14290,
+          cutoffDate: '2026-10-01',
+          items: luxuryDecoOrder14290Expenses,
+        },
+        {
+          flagKey: 'vedh_luxury14507_seeded',
+          alreadySeeded: seeded14507,
+          cutoffDate: '2026-10-08',
+          items: luxuryDecoOrder14507Expenses,
+        },
+      ];
+
       if (savedExpenses && sheetVer === EXPENSES_DATA_VERSION) {
         // Ensure plain string flag (fixes legacy JSON-quoted '"4.0_clean"' values)
         writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
         let loadedExpenses: Expense[] = JSON.parse(savedExpenses);
-        if (!seeded14290) {
+        let modifiedExpenses = false;
+
+        for (const seed of incrementalOrderSeeds) {
+          if (seed.alreadySeeded) continue;
           const existingIds = new Set(loadedExpenses.map((e) => e.id));
-          const missing14290 = luxuryDecoOrder14290Expenses.filter(
-            (item) => !existingIds.has(item.id)
-          );
-          if (missing14290.length > 0) {
-            const insertIdx = loadedExpenses.findIndex((e) => (e.date || '') < '2026-10-01');
+          const missing = seed.items.filter((item) => !existingIds.has(item.id));
+          if (missing.length > 0) {
+            const insertIdx = loadedExpenses.findIndex((e) => (e.date || '') < seed.cutoffDate);
             loadedExpenses =
               insertIdx === -1
-                ? [...loadedExpenses, ...missing14290]
+                ? [...loadedExpenses, ...missing]
                 : [
                     ...loadedExpenses.slice(0, insertIdx),
-                    ...missing14290,
+                    ...missing,
                     ...loadedExpenses.slice(insertIdx),
                   ];
-            persistStudioKey('vedh_expenses', loadedExpenses);
+            modifiedExpenses = true;
           }
-          writeVersionFlag('vedh_luxury14290_seeded', '1');
+          writeVersionFlag(seed.flagKey, '1');
+        }
+
+        if (modifiedExpenses) {
+          persistStudioKey('vedh_expenses', loadedExpenses);
         }
         setExpenses(loadedExpenses);
       } else {
         localStorage.setItem('vedh_expenses', JSON.stringify(initialExpenses));
         writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
         writeVersionFlag('vedh_luxury14290_seeded', '1');
+        writeVersionFlag('vedh_luxury14507_seeded', '1');
         localStorage.setItem('vedh_suppliers', JSON.stringify(initialSuppliers));
         setExpenses(initialExpenses);
         setSuppliers(initialSuppliers);
@@ -214,12 +244,12 @@ export default function Home() {
       const savedSuppliers = localStorage.getItem('vedh_suppliers');
       if (savedSuppliers && sheetVer === EXPENSES_DATA_VERSION) {
         let loadedSuppliers: Supplier[] = JSON.parse(savedSuppliers);
-        if (!seeded14290) {
+        if (!seeded14290 || !seeded14507) {
           const luxurySeed = initialSuppliers.find((s) => s.id === 'sup-luxurydeco');
           if (luxurySeed) {
             let changed = false;
             loadedSuppliers = loadedSuppliers.map((sup) => {
-              if (sup.id === 'sup-luxurydeco' && sup.totalPaid === 334) {
+              if (sup.id === 'sup-luxurydeco' && (sup.totalPaid || 0) < luxurySeed.totalPaid) {
                 changed = true;
                 return luxurySeed;
               }
@@ -868,6 +898,7 @@ export default function Home() {
     persist('vedh_suppliers', initialSuppliers);
     writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
     writeVersionFlag('vedh_luxury14290_seeded', '1');
+    writeVersionFlag('vedh_luxury14507_seeded', '1');
     addLog('Expense', 'Reloaded cleaned Purchase Sheet defaults');
     showToast('Reloaded default Purchase Sheet');
   };
