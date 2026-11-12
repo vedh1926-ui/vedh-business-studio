@@ -70,13 +70,20 @@ import {
 import { normalizeOrderNumberKey } from '@/lib/purchaseMediaStore';
 import { PurchaseMediaUpdateItem } from '@/components/PurchaseMediaModals';
 import {
+  ALL_STUDIO_SECTIONS,
+  DEFAULT_STUDIO_SETTINGS,
   EXPENSES_DATA_VERSION,
   OPR_DATA_VERSION,
+  StudioSectionKey,
+  StudioSettings,
   SupabaseSyncDiagnostic,
+  hydrateAllStudioSectionsFromCloud,
   persistStudioKey,
   probeSupabaseSchemaStatus,
   readVersionFlag,
+  registerSyncLifecycleListeners,
   subscribeStudioSync,
+  subscribeSupabaseStudioRealtime,
   writeVersionFlag,
 } from '@/lib/studioSync';
 
@@ -95,7 +102,9 @@ export default function Home() {
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
   const [payments, setPayments] = useState<Payment[]>(initialPayments);
   const [history, setHistory] = useState<HistoryLog[]>(initialHistory);
+  const historyRef = useRef<HistoryLog[]>(initialHistory);
   const [masterLists, setMasterLists] = useState<MasterListGroup[]>(initialMasterLists);
+  const [studioSettings, setStudioSettings] = useState<StudioSettings>(DEFAULT_STUDIO_SETTINGS);
 
   // Selection & Modal States
   const [selectedRecipeProductName, setSelectedRecipeProductName] = useState<string | null>(null);
@@ -126,40 +135,78 @@ export default function Home() {
   const formatSaveClock = () =>
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-  // Hydrate from localStorage on client mount & keep tabs synchronized in real time
+  // Hydrate from localStorage on client mount, then synchronize with Supabase Cloud & Realtime
   useEffect(() => {
     let active = true;
+
+    let localOrders: Order[] = initialOrders;
+    let localProducts: Product[] = initialProducts;
+    let localInventory: InventoryItem[] = initialInventory;
+    let localAdjustments: StockAdjustment[] = initialAdjustments;
+    let localRecipes: RecipeIngredient[] = initialRecipes;
+    let localCustomers: Customer[] = initialCustomers;
+    let localSuppliers: Supplier[] = initialSuppliers;
+    let localExpenses: Expense[] = initialExpenses;
+    let localPayments: Payment[] = initialPayments;
+    let localMasterLists: MasterListGroup[] = initialMasterLists;
+    let localHistory: HistoryLog[] = initialHistory;
+    let localSettings: StudioSettings = DEFAULT_STUDIO_SETTINGS;
+
+    let hadSavedOpr = false;
+    let hadSavedExpenses = false;
+    let hadSavedSuppliers = false;
+    let hadSavedMasterLists = false;
+    let hadSavedHistory = false;
+    let hadSavedSettings = false;
 
     try {
       // Upgrade Orders / Products / Recipes / Inventory once to the audited clean workbook v4.0_clean
       const oprVer = readVersionFlag('vedh_opr_version');
       if (oprVer === OPR_DATA_VERSION) {
+        hadSavedOpr = Boolean(localStorage.getItem('vedh_orders'));
         writeVersionFlag('vedh_opr_version', OPR_DATA_VERSION);
         const savedOrders = localStorage.getItem('vedh_orders');
-        const parsedOrders: Order[] = savedOrders ? JSON.parse(savedOrders) : initialOrders;
-        setOrders(parsedOrders);
+        localOrders = savedOrders ? JSON.parse(savedOrders) : initialOrders;
+        setOrders(localOrders);
 
         const savedProducts = localStorage.getItem('vedh_products');
-        if (savedProducts) setProducts(JSON.parse(savedProducts));
+        if (savedProducts) {
+          localProducts = JSON.parse(savedProducts);
+          setProducts(localProducts);
+        }
 
         const savedInventory = localStorage.getItem('vedh_inventory');
-        if (savedInventory) setInventory(JSON.parse(savedInventory));
+        if (savedInventory) {
+          localInventory = JSON.parse(savedInventory);
+          setInventory(localInventory);
+        }
 
         const savedAdjustments = localStorage.getItem('vedh_adjustments');
-        if (savedAdjustments) setAdjustments(JSON.parse(savedAdjustments));
+        if (savedAdjustments) {
+          localAdjustments = JSON.parse(savedAdjustments);
+          setAdjustments(localAdjustments);
+        }
 
         const savedRecipes = localStorage.getItem('vedh_recipes');
-        if (savedRecipes) setRecipes(JSON.parse(savedRecipes));
+        if (savedRecipes) {
+          localRecipes = JSON.parse(savedRecipes);
+          setRecipes(localRecipes);
+        }
 
         const savedCustomers = localStorage.getItem('vedh_customers');
         if (savedCustomers) {
-          setCustomers(JSON.parse(savedCustomers));
+          localCustomers = JSON.parse(savedCustomers);
+          setCustomers(localCustomers);
         } else {
-          setCustomers(buildCustomersFromOrders(parsedOrders));
+          localCustomers = buildCustomersFromOrders(localOrders);
+          setCustomers(localCustomers);
         }
 
         const savedPayments = localStorage.getItem('vedh_payments');
-        if (savedPayments) setPayments(JSON.parse(savedPayments));
+        if (savedPayments) {
+          localPayments = JSON.parse(savedPayments);
+          setPayments(localPayments);
+        }
       } else {
         localStorage.setItem('vedh_orders', JSON.stringify(initialOrders));
         localStorage.setItem('vedh_products', JSON.stringify(initialProducts));
@@ -282,8 +329,10 @@ export default function Home() {
         }
 
         if (modifiedExpenses) {
-          persistStudioKey('vedh_expenses', loadedExpenses);
+          persistStudioKey('vedh_expenses', loadedExpenses, { skipCloud: true });
         }
+        localExpenses = loadedExpenses;
+        hadSavedExpenses = true;
         setExpenses(loadedExpenses);
       } else {
         localStorage.setItem('vedh_expenses', JSON.stringify(initialExpenses));
@@ -310,31 +359,79 @@ export default function Home() {
               }
               return sup;
             });
-            if (changed) persistStudioKey('vedh_suppliers', loadedSuppliers);
+            if (changed) {
+              persistStudioKey('vedh_suppliers', loadedSuppliers, { skipCloud: true });
+            }
           }
         }
+        localSuppliers = loadedSuppliers;
+        hadSavedSuppliers = true;
         setSuppliers(loadedSuppliers);
       }
 
       const savedMasterLists = localStorage.getItem('vedh_master_lists');
       if (savedMasterLists) {
+        hadSavedMasterLists = true;
         const parsedLists: MasterListGroup[] = JSON.parse(savedMasterLists);
         const platformDefault = initialMasterLists.find((g) => g.key === 'platform');
         if (platformDefault && !parsedLists.some((g) => g.key === 'platform')) {
           const merged = [...parsedLists, platformDefault];
+          localMasterLists = merged;
           setMasterLists(merged);
           localStorage.setItem('vedh_master_lists', JSON.stringify(merged));
         } else {
+          localMasterLists = parsedLists;
           setMasterLists(parsedLists);
         }
+      }
+
+      const savedHistory = localStorage.getItem('vedh_history');
+      if (savedHistory) {
+        hadSavedHistory = true;
+        const parsedHistory: HistoryLog[] = JSON.parse(savedHistory);
+        localHistory = parsedHistory;
+        historyRef.current = parsedHistory;
+        setHistory(parsedHistory);
+      }
+
+      const savedSettings = localStorage.getItem('vedh_settings');
+      if (savedSettings) {
+        hadSavedSettings = true;
+        localSettings = { ...DEFAULT_STUDIO_SETTINGS, ...JSON.parse(savedSettings) };
+        setStudioSettings(localSettings);
       }
     } catch {
       // LocalStorage access restricted or empty
     }
 
-    probeSupabaseSchemaStatus().then((diag) => {
-      if (active) setSyncDiagnostic(diag);
+    registerSyncLifecycleListeners({
+      onCloudSaved: () => {
+        if (active) setLastSavedAt(formatSaveClock());
+      },
+      onSyncDiagnostic: (diag) => {
+        if (active) setSyncDiagnostic(diag);
+      },
     });
+
+    const sectionSetters: Record<StudioSectionKey, (parsed: any) => void> = {
+      orders: setOrders,
+      products: setProducts,
+      recipes: setRecipes,
+      inventory: setInventory,
+      adjustments: setAdjustments,
+      expenses: setExpenses,
+      customers: setCustomers,
+      suppliers: setSuppliers,
+      payments: setPayments,
+      master_lists: setMasterLists,
+      history: (val: HistoryLog[]) => {
+        historyRef.current = val;
+        setHistory(val);
+      },
+      settings: (val: StudioSettings) => {
+        setStudioSettings({ ...DEFAULT_STUDIO_SETTINGS, ...val });
+      },
+    };
 
     const syncHandlers: Record<string, (parsed: any) => void> = {
       vedh_orders: setOrders,
@@ -347,6 +444,8 @@ export default function Home() {
       vedh_expenses: setExpenses,
       vedh_payments: setPayments,
       vedh_master_lists: setMasterLists,
+      vedh_history: sectionSetters.history,
+      vedh_settings: sectionSetters.settings,
     };
 
     const unsubscribe = subscribeStudioSync((changedKey) => {
@@ -363,19 +462,125 @@ export default function Home() {
       }
     });
 
+    let unsubscribeRealtime = () => {};
+
+    void (async () => {
+      const diag = await probeSupabaseSchemaStatus();
+      if (!active) return;
+      setSyncDiagnostic(diag);
+
+      const resolved = await hydrateAllStudioSectionsFromCloud({
+        orders: {
+          localCandidate: localOrders,
+          factoryDefault: initialOrders,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedOpr,
+        },
+        products: {
+          localCandidate: localProducts,
+          factoryDefault: initialProducts,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedOpr,
+        },
+        recipes: {
+          localCandidate: localRecipes,
+          factoryDefault: initialRecipes,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedOpr,
+        },
+        inventory: {
+          localCandidate: localInventory,
+          factoryDefault: initialInventory,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedOpr,
+        },
+        adjustments: {
+          localCandidate: localAdjustments,
+          factoryDefault: initialAdjustments,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedOpr,
+        },
+        expenses: {
+          localCandidate: localExpenses,
+          factoryDefault: initialExpenses,
+          dataVersion: EXPENSES_DATA_VERSION,
+          shouldRescueLocal: hadSavedExpenses,
+        },
+        customers: {
+          localCandidate: localCustomers,
+          factoryDefault: initialCustomers,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedOpr,
+        },
+        suppliers: {
+          localCandidate: localSuppliers,
+          factoryDefault: initialSuppliers,
+          dataVersion: EXPENSES_DATA_VERSION,
+          shouldRescueLocal: hadSavedSuppliers,
+        },
+        payments: {
+          localCandidate: localPayments,
+          factoryDefault: initialPayments,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedOpr,
+        },
+        master_lists: {
+          localCandidate: localMasterLists,
+          factoryDefault: initialMasterLists,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedMasterLists,
+        },
+        history: {
+          localCandidate: localHistory,
+          factoryDefault: initialHistory,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedHistory,
+        },
+        settings: {
+          localCandidate: localSettings,
+          factoryDefault: DEFAULT_STUDIO_SETTINGS,
+          dataVersion: OPR_DATA_VERSION,
+          shouldRescueLocal: hadSavedSettings,
+        },
+      });
+
+      if (!active) return;
+      if (resolved) {
+        for (const section of ALL_STUDIO_SECTIONS) {
+          if (resolved[section] !== undefined) {
+            sectionSetters[section](resolved[section]);
+          }
+        }
+        setLastSavedAt(formatSaveClock());
+      }
+
+      unsubscribeRealtime = subscribeSupabaseStudioRealtime({
+        onSectionData: (section, data) => {
+          if (!active) return;
+          sectionSetters[section]?.(data);
+          setLastSavedAt(formatSaveClock());
+        },
+        onStatusChange: (nextDiag) => {
+          if (active) setSyncDiagnostic(nextDiag);
+        },
+      });
+    })();
+
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeRealtime();
+      registerSyncLifecycleListeners({});
       if (toastTimerRef.current) {
         clearTimeout(toastTimerRef.current);
       }
     };
   }, []);
 
-  // Save changes to localStorage and notify other open Studio tabs
+  // Save changes to localStorage, cross-tab channel, and Supabase Cloud
   const persist = (key: string, data: any) => {
     if (persistStudioKey(key, data)) {
-      setLastSavedAt(formatSaveClock());
+      queueMicrotask(() => setLastSavedAt(formatSaveClock()));
     }
   };
 
@@ -389,12 +594,22 @@ export default function Home() {
   // Add history log helper
   const addLog = (category: HistoryLog['category'], description: string) => {
     const newLog: HistoryLog = {
-      id: `hist-${Date.now()}`,
+      id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       category,
       description,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
     };
-    setHistory((prev) => [newLog, ...prev]);
+    const next = [newLog, ...historyRef.current].slice(0, 200);
+    historyRef.current = next;
+    setHistory(next);
+    persist('vedh_history', next);
+  };
+
+  const handleSaveSettings = (nextSettings: StudioSettings) => {
+    setStudioSettings(nextSettings);
+    persist('vedh_settings', nextSettings);
+    addLog('All', `Updated studio settings (${nextSettings.businessName} · ${nextSettings.currency})`);
+    showToast('Business settings saved and synced');
   };
 
   // Order Handlers
@@ -1415,7 +1630,12 @@ export default function Home() {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsView syncDiagnostic={syncDiagnostic} lastSavedAt={lastSavedAt} />
+            <SettingsView
+              settings={studioSettings}
+              onSaveSettings={handleSaveSettings}
+              syncDiagnostic={syncDiagnostic}
+              lastSavedAt={lastSavedAt}
+            />
           )}
 
           {activeTab === 'history' && <HistoryView logs={history} />}

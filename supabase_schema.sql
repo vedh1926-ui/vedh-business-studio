@@ -209,3 +209,62 @@ create policy "Allow authenticated full access to audit_logs" on public.audit_lo
 create policy "Allow authenticated full access to master_lists" on public.master_lists for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to recipes" on public.recipes for all using (auth.role() = 'authenticated');
 create policy "Allow authenticated full access to stock_adjustments" on public.stock_adjustments for all using (auth.role() = 'authenticated');
+
+-- =============================================================================
+-- 13. LIVE MULTI-BROWSER & MULTI-DEVICE WORKSPACE SYNC + SHARED MEDIA BUCKET
+-- Active schema powering /studio and Storefront bulk inquiries in real time
+-- =============================================================================
+create table if not exists public.studio_records (
+    section text not null,
+    record_id text not null,
+    sort_order double precision not null default 0,
+    payload jsonb not null,
+    updated_by text,
+    created_at timestamp with time zone not null default timezone('utc'::text, now()),
+    updated_at timestamp with time zone not null default timezone('utc'::text, now()),
+    primary key (section, record_id)
+);
+
+create index if not exists studio_records_section_sort_idx
+    on public.studio_records (section, sort_order asc, record_id asc);
+
+create index if not exists studio_records_updated_at_idx
+    on public.studio_records (updated_at desc);
+
+alter table public.studio_records replica identity full;
+
+create table if not exists public.studio_sync_meta (
+    section text primary key,
+    data_version text not null,
+    reset_epoch integer not null default 1,
+    seeded_at timestamp with time zone not null default timezone('utc'::text, now()),
+    updated_at timestamp with time zone not null default timezone('utc'::text, now())
+);
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.studio_records to anon, authenticated;
+grant select, insert, update, delete on public.studio_sync_meta to anon, authenticated;
+
+alter table public.studio_records enable row level security;
+alter table public.studio_sync_meta enable row level security;
+
+create policy "Studio open workspace access on studio_records"
+    on public.studio_records for all to anon, authenticated using (true) with check (true);
+create policy "Studio open workspace access on studio_sync_meta"
+    on public.studio_sync_meta for all to anon, authenticated using (true) with check (true);
+
+alter publication supabase_realtime add table public.studio_records;
+alter publication supabase_realtime add table public.studio_sync_meta;
+
+insert into storage.buckets (id, name, public)
+values ('vedh-purchase-media', 'vedh-purchase-media', true)
+on conflict (id) do update set public = true;
+
+create policy "Studio open read vedh-purchase-media"
+    on storage.objects for select to anon, authenticated using (bucket_id = 'vedh-purchase-media');
+create policy "Studio open insert vedh-purchase-media"
+    on storage.objects for insert to anon, authenticated with check (bucket_id = 'vedh-purchase-media');
+create policy "Studio open update vedh-purchase-media"
+    on storage.objects for update to anon, authenticated using (bucket_id = 'vedh-purchase-media') with check (bucket_id = 'vedh-purchase-media');
+create policy "Studio open delete vedh-purchase-media"
+    on storage.objects for delete to anon, authenticated using (bucket_id = 'vedh-purchase-media');

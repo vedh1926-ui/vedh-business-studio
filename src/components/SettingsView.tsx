@@ -1,24 +1,48 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { SupabaseSyncDiagnostic } from '@/lib/studioSync';
+import {
+  DEFAULT_STUDIO_SETTINGS,
+  StudioSettings,
+  SupabaseSyncDiagnostic,
+} from '@/lib/studioSync';
 import { Settings as SettingsIcon, Cloud, ShieldCheck, Key, CheckCircle, ExternalLink } from 'lucide-react';
 
 interface SettingsViewProps {
+  settings?: StudioSettings;
+  onSaveSettings?: (next: StudioSettings) => void;
   syncDiagnostic?: SupabaseSyncDiagnostic;
   lastSavedAt?: string | null;
 }
 
-export default function SettingsView({ syncDiagnostic, lastSavedAt }: SettingsViewProps) {
-  const [businessName, setBusinessName] = useState('Vedh');
-  const [currency, setCurrency] = useState('INR (₹)');
-  const [showLowStock, setShowLowStock] = useState(true);
-  const [tagline, setTagline] = useState('Luxury Handicrafts & Return Gifts');
+export default function SettingsView({
+  settings = DEFAULT_STUDIO_SETTINGS,
+  onSaveSettings,
+  syncDiagnostic,
+  lastSavedAt,
+}: SettingsViewProps) {
+  const [businessName, setBusinessName] = useState(settings.businessName);
+  const [currency, setCurrency] = useState(settings.currency);
+  const [showLowStock, setShowLowStock] = useState(settings.showLowStock);
+  const [tagline, setTagline] = useState(settings.tagline);
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setBusinessName(settings.businessName);
+    setCurrency(settings.currency);
+    setShowLowStock(settings.showLowStock);
+    setTagline(settings.tagline);
+  }, [settings.businessName, settings.currency, settings.showLowStock, settings.tagline]);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    onSaveSettings?.({
+      businessName: businessName.trim() || DEFAULT_STUDIO_SETTINGS.businessName,
+      currency,
+      showLowStock,
+      tagline: tagline.trim() || DEFAULT_STUDIO_SETTINGS.tagline,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -129,7 +153,7 @@ export default function SettingsView({ syncDiagnostic, lastSavedAt }: SettingsVi
             <div className="flex items-center space-x-2">
               <span
                 className={`w-2.5 h-2.5 rounded-full ${
-                  syncDiagnostic?.state === 'cloud-ready'
+                  syncDiagnostic?.mode === 'connected'
                     ? 'bg-emerald-500'
                     : isSupabaseConfigured
                     ? 'bg-amber-500'

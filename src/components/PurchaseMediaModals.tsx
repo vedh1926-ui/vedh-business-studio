@@ -90,6 +90,14 @@ export function PurchaseAttachmentPreviewModal({
     let active = true;
 
     async function load() {
+      if (target.url) {
+        if (active) {
+          setResolvedSrc(target.url);
+          setMimeType('');
+          setLoading(false);
+        }
+        return;
+      }
       if (target.mediaId) {
         setLoading(true);
         try {
@@ -98,6 +106,12 @@ export function PurchaseAttachmentPreviewModal({
           if (rec?.blob) {
             revokedUrl = URL.createObjectURL(rec.blob);
             setResolvedSrc(revokedUrl);
+            setMimeType(rec.mimeType || '');
+            setLoading(false);
+            return;
+          }
+          if (rec?.publicUrl) {
+            setResolvedSrc(rec.publicUrl);
             setMimeType(rec.mimeType || '');
             setLoading(false);
             return;
@@ -504,11 +518,11 @@ export function FolderMediaUploadModal({
           if (m.targetKind === 'bill') {
             item.receiptFile = m.file.name;
             item.receiptMediaId = stored.id;
-            item.receiptUrl = undefined;
+            item.receiptUrl = stored.publicUrl || undefined;
           } else {
             item.imageRef = m.file.name;
             item.imageMediaId = stored.id;
-            item.imageUrl = undefined;
+            item.imageUrl = stored.publicUrl || undefined;
           }
         }
       }
@@ -523,11 +537,11 @@ export function FolderMediaUploadModal({
         if (assignment.targetKind === 'bill') {
           item.receiptFile = assignment.file.name;
           item.receiptMediaId = stored.id;
-          item.receiptUrl = undefined;
+          item.receiptUrl = stored.publicUrl || undefined;
         } else {
           item.imageRef = assignment.file.name;
           item.imageMediaId = stored.id;
-          item.imageUrl = undefined;
+          item.imageUrl = stored.publicUrl || undefined;
         }
       }
 
@@ -552,7 +566,7 @@ export function FolderMediaUploadModal({
         id,
         receiptFile: orderBillFile.name,
         receiptMediaId: stored.id,
-        receiptUrl: undefined,
+        receiptUrl: stored.publicUrl || undefined,
       }));
       onApplyMediaUpdates(
         updates,

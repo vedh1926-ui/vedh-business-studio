@@ -23,6 +23,7 @@ import {
 import { formatINR } from '@/lib/utils';
 import { initialProducts } from '@/lib/mockData';
 import { Product } from '@/lib/types';
+import { persistStorefrontOrderInquiry } from '@/lib/studioSync';
 
 export default function Storefront() {
   const [selectedOccasion, setSelectedOccasion] = useState<string>('all');
@@ -53,34 +54,31 @@ export default function Storefront() {
     e.preventDefault();
     if (!clientName || !clientPhone) return;
 
-    try {
-      const existing = JSON.parse(localStorage.getItem('vedh_orders') || '[]');
-      const newInquiry = {
-        id: `inq-${Date.now()}`,
-        orderNumber: `#${Math.floor(1000 + Math.random() * 9000)}`,
-        customerName: clientName,
-        customerPhone: clientPhone,
-        customerEmail: '',
-        items: [
-          {
-            productId: 'bulk-craft',
-            productName: `${bulkCraft} (Bulk: ${bulkQty})`,
-            quantity: 1,
-            unitPrice: 0,
-          },
-        ],
-        totalAmount: 0,
-        advancePaid: 0,
-        balanceDue: 0,
-        status: 'Inquiry',
-        createdAt: new Date().toISOString().split('T')[0],
-        targetDeliveryDate: targetDate,
-        occasion: `${bulkOccasion} (${clientCity})`,
-        notes: `Bulk Inquiry: ${bulkQty} of ${bulkCraft}. Client Notes: ${customNotes}`,
-      };
-      localStorage.setItem('vedh_orders', JSON.stringify([newInquiry, ...existing]));
-    } catch {}
+    const newInquiry = {
+      id: `inq-${Date.now()}`,
+      orderNumber: `#${Math.floor(1000 + Math.random() * 9000)}`,
+      customerName: clientName,
+      customerPhone: clientPhone,
+      customerEmail: '',
+      items: [
+        {
+          productId: 'bulk-craft',
+          productName: `${bulkCraft} (Bulk: ${bulkQty})`,
+          quantity: 1,
+          unitPrice: 0,
+        },
+      ],
+      totalAmount: 0,
+      advancePaid: 0,
+      balanceDue: 0,
+      status: 'Inquiry',
+      createdAt: new Date().toISOString().split('T')[0],
+      targetDeliveryDate: targetDate,
+      occasion: `${bulkOccasion} (${clientCity})`,
+      notes: `Bulk Inquiry: ${bulkQty} of ${bulkCraft}. Client Notes: ${customNotes}`,
+    };
 
+    void persistStorefrontOrderInquiry(newInquiry);
     setIsSubmitted(true);
   };
 

@@ -130,6 +130,8 @@ export default function NewExpenseModal({
             const url = URL.createObjectURL(rec.blob);
             urlsToRevoke.push(url);
             setBillPreviewSrc(url);
+          } else if (active && rec?.publicUrl && !initialExpense.receiptUrl) {
+            setBillPreviewSrc(rec.publicUrl);
           }
         } catch {
           // ignore
@@ -142,6 +144,8 @@ export default function NewExpenseModal({
             const url = URL.createObjectURL(rec.blob);
             urlsToRevoke.push(url);
             setImagePreviewSrc(url);
+          } else if (active && rec?.publicUrl && !initialExpense.imageUrl) {
+            setImagePreviewSrc(rec.publicUrl);
           }
         } catch {
           // ignore
@@ -248,7 +252,7 @@ export default function NewExpenseModal({
         );
         nextReceiptFile = displayName;
         nextReceiptMediaId = stored.id;
-        nextReceiptUrl = undefined;
+        nextReceiptUrl = stored.publicUrl || undefined;
       }
 
       let nextImageRef = imageRef.trim() || undefined;
@@ -265,7 +269,7 @@ export default function NewExpenseModal({
         );
         nextImageRef = displayName;
         nextImageMediaId = stored.id;
-        nextImageUrl = undefined;
+        nextImageUrl = stored.publicUrl || undefined;
       }
 
       const trimmedOrderId = orderId.trim();

@@ -246,7 +246,7 @@ export default function ExpensesView({
         id: sib.id,
         receiptFile: file.name,
         receiptMediaId: stored.id,
-        receiptUrl: undefined,
+        receiptUrl: stored.publicUrl || undefined,
       }));
       onAttachPurchaseMedia(
         updates,
@@ -261,7 +261,7 @@ export default function ExpensesView({
             id: row.id,
             imageRef: file.name,
             imageMediaId: stored.id,
-            imageUrl: undefined,
+            imageUrl: stored.publicUrl || undefined,
           },
         ],
         `Attached product image "${file.name}" to ${row.title}`
@@ -286,7 +286,7 @@ export default function ExpensesView({
         id: item.id,
         receiptFile: file.name,
         receiptMediaId: stored.id,
-        receiptUrl: undefined,
+        receiptUrl: stored.publicUrl || undefined,
       }));
       onAttachPurchaseMedia(
         updates,
@@ -298,7 +298,7 @@ export default function ExpensesView({
         ...target,
         fileName: file.name,
         mediaId: stored.id,
-        url: undefined,
+        url: stored.publicUrl || undefined,
         inheritedFromOrder: false,
       });
     } else {
@@ -308,7 +308,7 @@ export default function ExpensesView({
             id: target.expense.id,
             imageRef: file.name,
             imageMediaId: stored.id,
-            imageUrl: undefined,
+            imageUrl: stored.publicUrl || undefined,
           },
         ],
         `Updated product image "${file.name}"`
@@ -317,7 +317,7 @@ export default function ExpensesView({
         ...target,
         fileName: file.name,
         mediaId: stored.id,
-        url: undefined,
+        url: stored.publicUrl || undefined,
       });
     }
   };

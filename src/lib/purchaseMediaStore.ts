@@ -1,8 +1,10 @@
 import { Expense } from './types';
+import { isSupabaseConfigured, supabase } from './supabase';
 
 const DB_NAME = 'vedh_purchase_media_db';
 const DB_VERSION = 1;
 const STORE_NAME = 'media';
+const STORAGE_BUCKET = 'vedh-purchase-media';
 
 export interface StoredMediaRecord {
   id: string;
@@ -11,6 +13,8 @@ export interface StoredMediaRecord {
   size: number;
   kind: 'bill' | 'product';
   blob: Blob;
+  publicUrl?: string;
+  storagePath?: string;
   updatedAt: number;
 }
 
@@ -46,9 +50,21 @@ function openMediaDb(): Promise<IDBDatabase> {
   });
 }
 
+function sanitizeStorageFileName(fileName: string): string {
+  const clean = fileName
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return clean || 'attachment';
+}
+
+function buildStorageObjectPath(kind: 'bill' | 'product', id: string, fileName: string): string {
+  return `${kind}/${id}/${sanitizeStorageFileName(fileName)}`;
+}
+
 /**
- * Persists a binary Bill/Invoice PDF or Product Image in IndexedDB so large files
- * never overflow browser localStorage quotas.
+ * Persists a binary Bill/Invoice PDF or Product Image in Supabase Storage (for cross-device
+ * sync) and IndexedDB (for fast local offline previews).
  */
 export async function savePurchaseMedia(
   file: File | Blob,
@@ -56,27 +72,59 @@ export async function savePurchaseMedia(
   kind: 'bill' | 'product',
   existingId?: string
 ): Promise<StoredMediaRecord> {
-  const db = await openMediaDb();
   const id =
     existingId ||
     `media-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const mimeType =
+    file.type || (fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+  let publicUrl: string | undefined;
+  let storagePath: string | undefined;
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const candidatePath = buildStorageObjectPath(kind, id, fileName);
+      const { error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(candidatePath, file, { upsert: true, contentType: mimeType });
+      if (!error) {
+        storagePath = candidatePath;
+        const { data: urlData } = supabase.storage
+          .from(STORAGE_BUCKET)
+          .getPublicUrl(candidatePath);
+        if (urlData?.publicUrl) {
+          publicUrl = urlData.publicUrl;
+        }
+      }
+    } catch {
+      // Fall back cleanly to local IndexedDB when offline
+    }
+  }
+
   const record: StoredMediaRecord = {
     id,
     fileName,
-    mimeType: file.type || (fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+    mimeType,
     size: file.size,
     kind,
     blob: file,
+    publicUrl,
+    storagePath,
     updatedAt: Date.now(),
   };
 
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).put(record);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error('Failed to write media record'));
-  });
-  db.close();
+  try {
+    const db = await openMediaDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Failed to write media record'));
+    });
+    db.close();
+  } catch (err) {
+    if (!publicUrl) throw err;
+  }
   return record;
 }
 
@@ -101,10 +149,36 @@ export async function getPurchaseMedia(mediaId: string): Promise<StoredMediaReco
 }
 
 /**
- * Deletes a stored Bill or Product Image record from IndexedDB.
+ * Deletes a stored Bill or Product Image record from IndexedDB and Supabase Storage.
  */
 export async function deletePurchaseMedia(mediaId: string): Promise<void> {
   if (!mediaId) return;
+  let existingRecord: StoredMediaRecord | null = null;
+  try {
+    existingRecord = await getPurchaseMedia(mediaId);
+  } catch {
+    // ignore
+  }
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      if (existingRecord?.storagePath) {
+        await supabase.storage.from(STORAGE_BUCKET).remove([existingRecord.storagePath]);
+      } else {
+        const inferredKind = mediaId.startsWith('media-product-') ? 'product' : 'bill';
+        const prefix = `${inferredKind}/${mediaId}`;
+        const { data: listed } = await supabase.storage.from(STORAGE_BUCKET).list(prefix);
+        if (listed && listed.length > 0) {
+          await supabase.storage
+            .from(STORAGE_BUCKET)
+            .remove(listed.map((f) => `${prefix}/${f.name}`));
+        }
+      }
+    } catch {
+      // ignore remote storage cleanup failures
+    }
+  }
+
   try {
     const db = await openMediaDb();
     await new Promise<void>((resolve, reject) => {
