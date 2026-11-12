@@ -269,8 +269,29 @@ export interface Customer {
   id: string;
   name: string;
   phone: string;
+  whatsappNumber?: string;
   email?: string;
-  city?: string;
+  city?: string; // Flat / Apartment / Area / City (shared with Orders & Invoices)
+  pincode?: string;
+  instagramHandle?: string; // e.g. @radhika.sharma
+  socialPlatform?: string; // Facebook, Pinterest, LinkedIn, YouTube, Other
+  socialHandle?: string; // Secondary social handle or URL
+  preferredContact?: 'WhatsApp' | 'Instagram DM' | 'Phone Call' | 'Email';
+  acquisitionSource?:
+    | 'Instagram'
+    | 'WhatsApp Referral'
+    | 'Word of Mouth'
+    | 'Exhibition / Pop-up'
+    | 'Website / Storefront'
+    | 'Corporate Outreach'
+    | 'Repeat Client'
+    | 'Other';
+  referredBy?: string;
+  occasionFocus?: string; // e.g. Diwali Hampers, Wedding Return Gifts, Housewarming
+  stylePreferences?: string; // e.g. Lotus motif, pastel wax, brass finish
+  importantDates?: string; // e.g. Anniversary 14 Nov, Annual Corporate Oct
+  gstin?: string; // Optional Company / GSTIN for corporate billing
+  notes?: string;
   totalOrders: number;
   totalSpent: number;
   type: 'Individual' | 'Corporate' | 'VIP';

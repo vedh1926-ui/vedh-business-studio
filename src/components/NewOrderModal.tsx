@@ -1,15 +1,17 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Product, Order, OrderItem } from '@/lib/types';
+import { Customer, Product, Order, OrderItem } from '@/lib/types';
 import { formatINR } from '@/lib/utils';
 import { X, Plus, Trash2 } from 'lucide-react';
 
 interface NewOrderModalProps {
   products: Product[];
+  customers?: Customer[];
   paymentModes?: string[];
   orderStatuses?: string[];
   initialOrder?: Order | null;
+  prefillCustomer?: Customer | null;
   nextOrderNumberSuggestion?: string;
   onClose: () => void;
   onSave: (order: Omit<Order, 'id'>, existingId?: string) => void;
@@ -17,26 +19,76 @@ interface NewOrderModalProps {
 
 export default function NewOrderModal({
   products,
+  customers = [],
   paymentModes = ['UPI', 'Cash', 'Card', 'Net Banking', 'Cash on Delivery', 'Other'],
   orderStatuses = ['New', 'In Production', 'Ready', 'Delivered', 'Cancelled'],
   initialOrder = null,
+  prefillCustomer = null,
   nextOrderNumberSuggestion = 'ORD-021',
   onClose,
   onSave,
 }: NewOrderModalProps) {
+  const cleanPhoneValue = (v?: string) => {
+    const t = (v || '').trim();
+    return t && t !== '—' && t !== '-' ? t : '';
+  };
+
+  const formatCustomerLocation = (c?: Customer | null) => {
+    if (!c?.city?.trim()) return '';
+    return c.pincode?.trim() ? `${c.city.trim()} - ${c.pincode.trim()}` : c.city.trim();
+  };
+
   const [orderNumber, setOrderNumber] = useState(
     initialOrder?.orderNumber || nextOrderNumberSuggestion
   );
   const [orderDate, setOrderDate] = useState(
     initialOrder?.createdAt || new Date().toISOString().split('T')[0]
   );
-  const [customerName, setCustomerName] = useState(initialOrder?.customerName || '');
-  const [customerPhone, setCustomerPhone] = useState(initialOrder?.customerPhone || '');
-  const [customerLocation, setCustomerLocation] = useState(initialOrder?.customerLocation || '');
-  const [occasion, setOccasion] = useState(initialOrder?.occasion || '');
+  const [customerName, setCustomerName] = useState(
+    initialOrder?.customerName || prefillCustomer?.name || ''
+  );
+  const [customerPhone, setCustomerPhone] = useState(
+    initialOrder?.customerPhone ||
+      cleanPhoneValue(prefillCustomer?.phone) ||
+      cleanPhoneValue(prefillCustomer?.whatsappNumber) ||
+      ''
+  );
+  const [customerEmail, setCustomerEmail] = useState(
+    initialOrder?.customerEmail || prefillCustomer?.email || ''
+  );
+  const [customerLocation, setCustomerLocation] = useState(
+    initialOrder?.customerLocation || formatCustomerLocation(prefillCustomer) || ''
+  );
+  const [occasion, setOccasion] = useState(
+    initialOrder?.occasion || prefillCustomer?.occasionFocus || ''
+  );
   const [targetDate, setTargetDate] = useState(initialOrder?.targetDeliveryDate || '');
   const [deliveredOn, setDeliveredOn] = useState(initialOrder?.deliveredOn || '');
   const [notes, setNotes] = useState(initialOrder?.notes || '');
+
+  const matchedCustomer = customers.find(
+    (c) =>
+      c.name.trim().toLowerCase().replace(/\s+/g, ' ') ===
+      customerName.trim().toLowerCase().replace(/\s+/g, ' ')
+  );
+
+  const handleCustomerNameChange = (nextName: string) => {
+    setCustomerName(nextName);
+    if (initialOrder) return;
+    const match = customers.find(
+      (c) =>
+        c.name.trim().toLowerCase().replace(/\s+/g, ' ') ===
+        nextName.trim().toLowerCase().replace(/\s+/g, ' ')
+    );
+    if (match) {
+      const ph = cleanPhoneValue(match.phone) || cleanPhoneValue(match.whatsappNumber);
+      const loc = formatCustomerLocation(match);
+      if (ph) setCustomerPhone(ph);
+      if (match.email) setCustomerEmail(match.email);
+      if (loc) setCustomerLocation(loc);
+      if (match.occasionFocus && !occasion) setOccasion(match.occasionFocus);
+    }
+  };
   const [advancePaid, setAdvancePaid] = useState<number>(initialOrder?.advancePaid ?? 0);
   const [paymentMode, setPaymentMode] = useState<string>(
     initialOrder?.paymentMode || paymentModes[0] || 'UPI'
@@ -118,7 +170,7 @@ export default function NewOrderModal({
         orderNumber: orderNumber.trim() || nextOrderNumberSuggestion,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim() || undefined,
-        customerEmail: initialOrder?.customerEmail,
+        customerEmail: customerEmail.trim() || initialOrder?.customerEmail,
         customerLocation: customerLocation.trim() || undefined,
         shipping: initialOrder?.shipping,
         tax: initialOrder?.tax,
@@ -202,11 +254,23 @@ export default function NewOrderModal({
               <input
                 type="text"
                 required
+                list="vedh-customer-suggestions"
                 placeholder="e.g. Radhika Sharma"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => handleCustomerNameChange(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
               />
+              <datalist id="vedh-customer-suggestions">
+                {customers.map((c) => (
+                  <option key={c.id} value={c.name} />
+                ))}
+              </datalist>
+              {matchedCustomer && (
+                <div className="mt-1 text-[10px] text-[#8F243C] font-medium truncate">
+                  CRM match: {matchedCustomer.type}
+                  {matchedCustomer.instagramHandle ? ` · ${matchedCustomer.instagramHandle}` : ''}
+                </div>
+              )}
             </div>
 
             <div>

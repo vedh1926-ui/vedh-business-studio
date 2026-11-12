@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabase } from './supabase';
-import type { Order } from './types';
+import type { Customer, Order } from './types';
 
 export const OPR_DATA_VERSION = '4.0_clean';
 export const EXPENSES_DATA_VERSION = '4.0_clean';
@@ -1057,11 +1057,56 @@ export function subscribeSupabaseStudioRealtime(options: {
  * (`orders` section) alongside `localStorage` so Studio browsers receive it live.
  */
 export async function persistStorefrontOrderInquiry(inquiry: Order): Promise<boolean> {
+  const normName = (inquiry.customerName || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const nowSort = -Date.now();
+  const buildFallbackCustomer = (): Customer => ({
+    id: `cust-${Date.now()}`,
+    name: inquiry.customerName.trim(),
+    phone: inquiry.customerPhone?.trim() || '—',
+    whatsappNumber: inquiry.customerPhone?.trim() || undefined,
+    email: inquiry.customerEmail?.trim() || undefined,
+    city: inquiry.customerLocation?.trim() || undefined,
+    acquisitionSource: 'Website / Storefront',
+    preferredContact: inquiry.customerPhone ? 'WhatsApp' : undefined,
+    occasionFocus: inquiry.occasion?.trim() || undefined,
+    totalOrders: 1,
+    totalSpent: inquiry.totalAmount || 0,
+    type: 'Individual',
+    lastOrderDate: inquiry.createdAt,
+  });
+
   try {
     const existingRaw = localStorage.getItem('vedh_orders');
     const existing = existingRaw ? (JSON.parse(existingRaw) as Order[]) : [];
     const nextOrders = [inquiry, ...(Array.isArray(existing) ? existing : [])];
     localStorage.setItem('vedh_orders', JSON.stringify(nextOrders));
+
+    const existingCustRaw = localStorage.getItem('vedh_customers');
+    const existingCusts = existingCustRaw ? (JSON.parse(existingCustRaw) as Customer[]) : [];
+    let custUpdated = existingCusts;
+    if (normName) {
+      const idx = existingCusts.findIndex(
+        (c) => (c.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === normName
+      );
+      if (idx >= 0) {
+        const cur = existingCusts[idx];
+        custUpdated = existingCusts.map((c, i) =>
+          i === idx
+            ? {
+                ...cur,
+                phone: cur.phone && cur.phone !== '—' ? cur.phone : inquiry.customerPhone?.trim() || cur.phone,
+                totalOrders: (cur.totalOrders || 0) + 1,
+                totalSpent: Math.round(((cur.totalSpent || 0) + (inquiry.totalAmount || 0)) * 100) / 100,
+                lastOrderDate: inquiry.createdAt || cur.lastOrderDate,
+              }
+            : c
+        );
+      } else {
+        custUpdated = [buildFallbackCustomer(), ...existingCusts];
+      }
+      localStorage.setItem('vedh_customers', JSON.stringify(custUpdated));
+    }
+
     if (typeof BroadcastChannel !== 'undefined') {
       const channel = new BroadcastChannel(STUDIO_SYNC_CHANNEL);
       channel.postMessage({
@@ -1069,6 +1114,13 @@ export async function persistStorefrontOrderInquiry(inquiry: Order): Promise<boo
         senderTabId: SENDER_TAB_ID,
         timestamp: Date.now(),
       });
+      if (normName) {
+        channel.postMessage({
+          key: 'vedh_customers',
+          senderTabId: SENDER_TAB_ID,
+          timestamp: Date.now(),
+        });
+      }
       channel.close();
     }
   } catch {
@@ -1082,12 +1134,52 @@ export async function persistStorefrontOrderInquiry(inquiry: Order): Promise<boo
       {
         section: 'orders',
         record_id: inquiry.id,
-        sort_order: -Date.now(),
+        sort_order: nowSort,
         payload: cleanPayload,
         updated_by: 'storefront',
       },
       { onConflict: 'section,record_id' }
     );
+
+    if (normName) {
+      const { data: existingRows } = await supabase
+        .from('studio_records')
+        .select('record_id,sort_order,payload')
+        .eq('section', 'customers');
+      const matched = (existingRows || []).find((r) => {
+        const p = r.payload as Customer | null;
+        return (
+          p?.name &&
+          p.name.trim().toLowerCase().replace(/\s+/g, ' ') === normName
+        );
+      });
+      const nextCustomer: Customer = matched
+        ? {
+            ...(matched.payload as Customer),
+            phone:
+              (matched.payload as Customer).phone && (matched.payload as Customer).phone !== '—'
+                ? (matched.payload as Customer).phone
+                : inquiry.customerPhone?.trim() || '—',
+            totalOrders: ((matched.payload as Customer).totalOrders || 0) + 1,
+            totalSpent:
+              Math.round(
+                (((matched.payload as Customer).totalSpent || 0) + (inquiry.totalAmount || 0)) * 100
+              ) / 100,
+            lastOrderDate: inquiry.createdAt || (matched.payload as Customer).lastOrderDate,
+          }
+        : buildFallbackCustomer();
+      await supabase.from('studio_records').upsert(
+        {
+          section: 'customers',
+          record_id: nextCustomer.id,
+          sort_order: matched ? matched.sort_order : nowSort,
+          payload: JSON.parse(JSON.stringify(nextCustomer)) as Record<string, unknown>,
+          updated_by: 'storefront',
+        },
+        { onConflict: 'section,record_id' }
+      );
+    }
+
     return !error;
   } catch {
     return false;

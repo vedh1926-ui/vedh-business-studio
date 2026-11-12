@@ -816,13 +816,43 @@ export function formatInvoiceDisplayDate(ymd?: string): string {
   return `${monthLabel}, ${day} ${year}`;
 }
 
+export function normalizeInstagramHandle(raw?: string): string {
+  const cleaned = (raw || '')
+    .trim()
+    .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/^@+/, '')
+    .trim();
+  return cleaned ? `@${cleaned}` : '';
+}
+
+export function getInstagramProfileUrl(handle?: string): string | null {
+  const normalized = normalizeInstagramHandle(handle);
+  if (!normalized) return null;
+  return `https://www.instagram.com/${encodeURIComponent(normalized.slice(1))}/`;
+}
+
+export function getWhatsAppChatUrl(phone?: string): string | null {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (digits.length < 10) return null;
+  const normalizedDigits = digits.length === 10 ? `91${digits}` : digits;
+  return `https://wa.me/${normalizedDigits}`;
+}
+
+function cleanCustomerPhone(value?: string): string {
+  const v = (value || '').trim();
+  return v && v !== '—' && v !== '-' ? v : '';
+}
+
 /**
- * Aggregates Customer records directly from Orders so customer spend and counts stay in sync.
+ * Aggregates Customer records directly from Orders while preserving manual CRM customers
+ * (including prospects with 0 orders) and custom social/contact/preference metadata.
  */
 export function buildCustomersFromOrders(orders: Order[], existingCustomers: Customer[] = []): Customer[] {
   const existingByKey = new Map<string, Customer>();
   for (const c of existingCustomers) {
-    existingByKey.set(normalizeNameKey(c.name), c);
+    const key = normalizeNameKey(c.name);
+    if (key) existingByKey.set(key, c);
   }
 
   const map = new Map<
@@ -850,13 +880,15 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
     const groupKey = `${order.orderNumber.trim().toUpperCase()}__${order.createdAt}`;
     const resolvedLocation =
       order.customerLocation?.trim() || extractAddressFromNotes(order.notes);
+    const orderPhone = cleanCustomerPhone(order.customerPhone);
+    const orderEmail = (order.customerEmail || '').trim();
 
     const prev = map.get(key);
     if (prev) {
       prev.orderGroups.add(groupKey);
       prev.totalSpent = round2(prev.totalSpent + lineTotal);
-      if (!prev.phone && order.customerPhone) prev.phone = order.customerPhone;
-      if (!prev.email && order.customerEmail) prev.email = order.customerEmail;
+      if (orderPhone) prev.phone = orderPhone;
+      if (orderEmail) prev.email = orderEmail;
       if (resolvedLocation) prev.city = resolvedLocation;
       if (order.createdAt && (!prev.lastOrderDate || order.createdAt > prev.lastOrderDate)) {
         prev.lastOrderDate = order.createdAt;
@@ -864,8 +896,8 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
     } else {
       map.set(key, {
         name: order.customerName.trim(),
-        phone: order.customerPhone || '',
-        email: order.customerEmail || '',
+        phone: orderPhone,
+        email: orderEmail,
         city: resolvedLocation || '',
         orderGroups: new Set([groupKey]),
         totalSpent: lineTotal,
@@ -875,20 +907,25 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
   }
 
   const list: Customer[] = [];
+  const seenKeys = new Set<string>();
   let idx = 1;
+
   for (const [key, entry] of map.entries()) {
+    seenKeys.add(key);
     const prevCust = existingByKey.get(key);
     const orderCount = entry.orderGroups.size;
     const type: Customer['type'] =
       prevCust?.type ??
       (entry.totalSpent >= 3000 || orderCount >= 3 ? 'VIP' : 'Individual');
 
+    const prevPhone = cleanCustomerPhone(prevCust?.phone);
     list.push({
+      ...(prevCust || {}),
       id: prevCust?.id ?? `cust-sheet-${idx++}`,
-      name: entry.name,
-      phone: entry.phone || prevCust?.phone || '—',
-      email: entry.email || prevCust?.email,
-      city: entry.city || prevCust?.city,
+      name: prevCust?.name?.trim() || entry.name,
+      phone: prevPhone || entry.phone || '—',
+      email: prevCust?.email?.trim() || entry.email || undefined,
+      city: prevCust?.city?.trim() || entry.city || undefined,
       totalOrders: orderCount,
       totalSpent: entry.totalSpent,
       type,
@@ -896,7 +933,23 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
     });
   }
 
-  return list.sort((a, b) => b.totalSpent - a.totalSpent);
+  // Keep manually added customers who do not yet have any non-cancelled orders
+  for (const cust of existingCustomers) {
+    const key = normalizeNameKey(cust.name);
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    list.push({
+      ...cust,
+      phone: cleanCustomerPhone(cust.phone) || '—',
+      totalOrders: 0,
+      totalSpent: 0,
+    });
+  }
+
+  return list.sort((a, b) => {
+    if (b.totalSpent !== a.totalSpent) return b.totalSpent - a.totalSpent;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 /**

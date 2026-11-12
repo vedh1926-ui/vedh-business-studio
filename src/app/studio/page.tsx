@@ -24,6 +24,7 @@ import NewProductModal from '@/components/NewProductModal';
 import NewStockModal from '@/components/NewStockModal';
 import NewExpenseModal from '@/components/NewExpenseModal';
 import OrderEnquiryCheckerModal from '@/components/OrderEnquiryCheckerModal';
+import CustomerModal, { CustomerFormPayload } from '@/components/CustomerModal';
 
 import {
   ActiveTab,
@@ -117,6 +118,9 @@ export default function Home() {
   const [isNewStockOpen, setIsNewStockOpen] = useState(false);
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [prefillOrderCustomer, setPrefillOrderCustomer] = useState<Customer | null>(null);
   const [syncDiagnostic, setSyncDiagnostic] = useState<SupabaseSyncDiagnostic | undefined>(undefined);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -613,8 +617,11 @@ export default function Home() {
   };
 
   // Order Handlers
-  const syncCustomersFromOrdersList = (nextOrders: Order[]) => {
-    const nextCustomers = buildCustomersFromOrders(nextOrders, customers);
+  const syncCustomersFromOrdersList = (
+    nextOrders: Order[],
+    baseCustomers: Customer[] = customers
+  ) => {
+    const nextCustomers = buildCustomersFromOrders(nextOrders, baseCustomers);
     setCustomers(nextCustomers);
     persist('vedh_customers', nextCustomers);
   };
@@ -627,7 +634,16 @@ export default function Home() {
       );
       setOrders(updated);
       persist('vedh_orders', updated);
-      syncCustomersFromOrdersList(updated);
+      const updatedCustomerBase = customers.map((c) => {
+        if (normalizeNameKey(c.name) !== normalizeNameKey(orderData.customerName)) return c;
+        return {
+          ...c,
+          ...(orderData.customerPhone?.trim() ? { phone: orderData.customerPhone.trim() } : {}),
+          ...(orderData.customerEmail?.trim() ? { email: orderData.customerEmail.trim() } : {}),
+          ...(orderData.customerLocation?.trim() ? { city: orderData.customerLocation.trim() } : {}),
+        };
+      });
+      syncCustomersFromOrdersList(updated, updatedCustomerBase);
 
       if (prev && orderData.advancePaid > prev.advancePaid) {
         const delta = round2(orderData.advancePaid - prev.advancePaid);
@@ -657,7 +673,16 @@ export default function Home() {
     const updated = [newOrder, ...orders];
     setOrders(updated);
     persist('vedh_orders', updated);
-    syncCustomersFromOrdersList(updated);
+    const updatedCustomerBase = customers.map((c) => {
+      if (normalizeNameKey(c.name) !== normalizeNameKey(newOrder.customerName)) return c;
+      return {
+        ...c,
+        ...(newOrder.customerPhone?.trim() ? { phone: newOrder.customerPhone.trim() } : {}),
+        ...(newOrder.customerEmail?.trim() ? { email: newOrder.customerEmail.trim() } : {}),
+        ...(newOrder.customerLocation?.trim() ? { city: newOrder.customerLocation.trim() } : {}),
+      };
+    });
+    syncCustomersFromOrdersList(updated, updatedCustomerBase);
 
     if (newOrder.advancePaid > 0) {
       const newPay: Payment = {
@@ -783,7 +808,15 @@ export default function Home() {
     });
     setOrders(updated);
     persist('vedh_orders', updated);
-    syncCustomersFromOrdersList(updated);
+    const updatedCustomerBase =
+      patch.customerLocation !== undefined
+        ? customers.map((c) =>
+            normalizeNameKey(c.name) === normalizeNameKey(targetOrder.customerName)
+              ? { ...c, city: patch.customerLocation?.trim() || c.city }
+              : c
+          )
+        : customers;
+    syncCustomersFromOrdersList(updated, updatedCustomerBase);
     const refreshedMatch = updated.find((o) => o.id === targetOrder.id) || targetOrder;
     setSelectedOrderForInvoice(buildCombinedInvoiceOrder(refreshedMatch, updated));
     addLog(
@@ -1338,10 +1371,117 @@ export default function Home() {
   };
 
   // Customers Handlers
+  const handleSaveCustomer = (data: CustomerFormPayload, existingId?: string) => {
+    const cleanPhoneVal = (v?: string) => {
+      const trimmed = (v || '').trim();
+      return trimmed && trimmed !== '—' && trimmed !== '-' ? trimmed : '';
+    };
+
+    const newKey = normalizeNameKey(data.name);
+    const targetExisting = existingId
+      ? customers.find((c) => c.id === existingId)
+      : customers.find((c) => normalizeNameKey(c.name) === newKey);
+
+    if (targetExisting) {
+      const oldKey = normalizeNameKey(targetExisting.name);
+      const oldPhone = cleanPhoneVal(targetExisting.phone);
+      const oldEmail = (targetExisting.email || '').trim();
+      const oldLocation = targetExisting.pincode?.trim()
+        ? `${(targetExisting.city || '').trim()} - ${targetExisting.pincode.trim()}`
+        : (targetExisting.city || '').trim();
+
+      const nextPhone = cleanPhoneVal(data.phone) || cleanPhoneVal(data.whatsappNumber) || '—';
+      const nextEmail = data.email?.trim() || undefined;
+      const nextCity = data.city?.trim() || undefined;
+      const nextFullLocation =
+        nextCity && data.pincode?.trim()
+          ? `${nextCity} - ${data.pincode.trim()}`
+          : nextCity || '';
+
+      const updatedCustomer: Customer = {
+        ...targetExisting,
+        ...data,
+        id: targetExisting.id,
+        phone: nextPhone,
+      };
+
+      let nextCustomers = customers.map((c) =>
+        c.id === targetExisting.id ? updatedCustomer : c
+      );
+
+      // Keep linked orders & payments in sync when customer details or name change
+      let ordersChanged = false;
+      const updatedOrders = orders.map((o) => {
+        if (normalizeNameKey(o.customerName) !== oldKey) return o;
+        const patch: Partial<Order> = {};
+        if (data.name !== targetExisting.name) {
+          patch.customerName = data.name;
+        }
+        const curOrderPhone = cleanPhoneVal(o.customerPhone);
+        const resolvedPhone = cleanPhoneVal(nextPhone);
+        if (resolvedPhone && (!curOrderPhone || curOrderPhone === oldPhone)) {
+          patch.customerPhone = resolvedPhone;
+        }
+        const curOrderEmail = (o.customerEmail || '').trim();
+        if (nextEmail && (!curOrderEmail || curOrderEmail === oldEmail)) {
+          patch.customerEmail = nextEmail;
+        }
+        const curOrderLoc = (o.customerLocation || '').trim();
+        if (nextFullLocation && (!curOrderLoc || curOrderLoc === oldLocation || curOrderLoc === (targetExisting.city || '').trim())) {
+          patch.customerLocation = nextFullLocation;
+        }
+        if (Object.keys(patch).length === 0) return o;
+        ordersChanged = true;
+        return { ...o, ...patch };
+      });
+
+      if (ordersChanged) {
+        setOrders(updatedOrders);
+        persist('vedh_orders', updatedOrders);
+        nextCustomers = buildCustomersFromOrders(updatedOrders, nextCustomers);
+      }
+
+      if (newKey !== oldKey) {
+        const updatedPayments = payments.map((p) =>
+          normalizeNameKey(p.customerName) === oldKey ? { ...p, customerName: data.name } : p
+        );
+        setPayments(updatedPayments);
+        persist('vedh_payments', updatedPayments);
+      }
+
+      setCustomers(nextCustomers);
+      persist('vedh_customers', nextCustomers);
+      addLog('Customer', `Customer profile updated: ${data.name} (${data.type})`);
+      showToast(`Saved customer "${data.name}" & synced with Orders`);
+      return;
+    }
+
+    const newCustomer: Customer = {
+      ...data,
+      id: `cust-${Date.now()}`,
+      phone: cleanPhoneVal(data.phone) || cleanPhoneVal(data.whatsappNumber) || '—',
+      totalOrders: 0,
+      totalSpent: 0,
+    };
+    const updated = [newCustomer, ...customers];
+    setCustomers(updated);
+    persist('vedh_customers', updated);
+    addLog(
+      'Customer',
+      `Customer added: ${newCustomer.name}${newCustomer.instagramHandle ? ` (${newCustomer.instagramHandle})` : ''}`
+    );
+    showToast(`Added customer "${newCustomer.name}"`);
+  };
+
   const handleDeleteCustomer = (id: string) => {
+    const target = customers.find((c) => c.id === id);
     const updated = customers.filter((c) => c.id !== id);
     setCustomers(updated);
     persist('vedh_customers', updated);
+    if (target) {
+      addLog('Customer', `Customer removed: ${target.name}`);
+      showToast(`Deleted customer "${target.name}"`);
+    }
   };
 
   // Suppliers Handlers
@@ -1392,9 +1532,12 @@ export default function Home() {
   };
 
   // Quick Action Dispatcher
-  const handleQuickAdd = (type: 'order' | 'product' | 'stock' | 'expense' | 'recipe') => {
+  const handleQuickAdd = (
+    type: 'order' | 'product' | 'stock' | 'expense' | 'recipe' | 'customer'
+  ) => {
     if (type === 'order') {
       setEditingOrder(null);
+      setPrefillOrderCustomer(null);
       setIsNewOrderOpen(true);
     }
     if (type === 'product') {
@@ -1406,6 +1549,10 @@ export default function Home() {
     if (type === 'expense') {
       setEditingExpense(null);
       setIsNewExpenseOpen(true);
+    }
+    if (type === 'customer') {
+      setEditingCustomer(null);
+      setIsNewCustomerOpen(true);
     }
   };
 
@@ -1454,6 +1601,7 @@ export default function Home() {
               setActiveTab={setActiveTab}
               onOpenNewOrder={() => {
                 setEditingOrder(null);
+                setPrefillOrderCustomer(null);
                 setIsNewOrderOpen(true);
               }}
               onOpenNewStock={() => setIsNewStockOpen(true)}
@@ -1478,6 +1626,7 @@ export default function Home() {
               orderStatuses={getActiveOptions('order_status')}
               onOpenNewOrder={() => {
                 setEditingOrder(null);
+                setPrefillOrderCustomer(null);
                 setIsNewOrderOpen(true);
               }}
               onEditOrder={(order) => {
@@ -1582,8 +1731,20 @@ export default function Home() {
           {activeTab === 'customers' && (
             <CustomersView
               customers={customers}
-              onOpenNewCustomer={() => setIsNewOrderOpen(true)}
+              onOpenNewCustomer={() => {
+                setEditingCustomer(null);
+                setIsNewCustomerOpen(true);
+              }}
+              onEditCustomer={(cust) => {
+                setEditingCustomer(cust);
+                setIsNewCustomerOpen(true);
+              }}
               onDeleteCustomer={handleDeleteCustomer}
+              onCreateOrderForCustomer={(cust) => {
+                setEditingOrder(null);
+                setPrefillOrderCustomer(cust);
+                setIsNewOrderOpen(true);
+              }}
             />
           )}
 
@@ -1665,16 +1826,32 @@ export default function Home() {
 
       {isNewOrderOpen && (
         <NewOrderModal
-          key={editingOrder?.id ?? 'new-order'}
+          key={editingOrder?.id ?? prefillOrderCustomer?.id ?? 'new-order'}
           products={products}
+          customers={customers}
           paymentModes={getActiveOptions('payment_mode')}
           orderStatuses={getActiveOptions('order_status')}
           initialOrder={editingOrder}
+          prefillCustomer={prefillOrderCustomer}
           onClose={() => {
             setIsNewOrderOpen(false);
             setEditingOrder(null);
+            setPrefillOrderCustomer(null);
           }}
           onSave={handleSaveOrder}
+        />
+      )}
+
+      {isNewCustomerOpen && (
+        <CustomerModal
+          key={editingCustomer?.id ?? 'new-customer'}
+          initialCustomer={editingCustomer}
+          existingCustomers={customers}
+          onClose={() => {
+            setIsNewCustomerOpen(false);
+            setEditingCustomer(null);
+          }}
+          onSave={handleSaveCustomer}
         />
       )}
 
