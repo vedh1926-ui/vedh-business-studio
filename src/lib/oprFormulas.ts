@@ -14,10 +14,13 @@ import {
   RecipeIngredient,
   RecipeIngredientMetrics,
   StockAdjustment,
+  Supplier,
 } from './types';
 import {
+  computePurchaseRowMetrics,
   diffCalendarDays,
   IN_TRANSIT_PURCHASE_STATUSES,
+  PROBLEM_PURCHASE_STATUSES,
   RECEIVED_STOCK_PURCHASE_STATUSES,
 } from './purchaseFormulas';
 import { round2 } from './utils';
@@ -1129,4 +1132,125 @@ export function exportRecipesToCsv(
   });
 
   return [header.map(csvCell).join(','), ...rows].join('\r\n');
+}
+
+const KNOWN_SUPPLIER_ALIASES: Record<string, string[]> = {
+  'sup-amazon': ['amazon'],
+  'sup-meesho': ['meesho'],
+  'sup-justkraft': ['just kraft'],
+  'sup-shanti': ['shanti novelties', 'outstation market'],
+  'sup-csc': ['csc craft'],
+  'sup-bakematic': ['bakematic'],
+  'sup-nandiarts': ['nandiarts'],
+  'sup-begum-packing': ['bhagwan das', 'begum bazaar packing'],
+  'sup-bhavani': ['bhavani retail'],
+  'sup-giftinghouse': ['giftinghouse', 'the giftinghouse'],
+  'sup-tilakchand': ['tilak chand'],
+  'sup-bhagwanlal': ['bhagwanlal'],
+  'sup-luxurydeco': ['luxury deco'],
+  'sup-runicha': ['runicha'],
+  'sup-mschem': ['m/s chem', 'chem soy wax'],
+};
+
+export function normalizeWebsiteUrl(raw?: string): string | null {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.includes('.')) return `https://${trimmed}`;
+  return null;
+}
+
+/**
+ * Matches Expenses / Purchase ledger entries linked to a Supplier record using exact name,
+ * normalized prefix (stripping parenthetical notes), custom aliases, and known seeded aliases.
+ */
+export function matchSupplierExpenses(supplier: Supplier, expenses: Expense[]): Expense[] {
+  const baseName = normalizeNameKey(supplier.name);
+  const strippedName = normalizeNameKey(supplier.name.replace(/\([^)]*\)/g, ''));
+  const customAliases = (supplier.platformAlias || '')
+    .split(',')
+    .map((s) => normalizeNameKey(s))
+    .filter((s) => s.length >= 2);
+  const seededAliases = KNOWN_SUPPLIER_ALIASES[supplier.id] || [];
+
+  const tokens = Array.from(
+    new Set([baseName, strippedName, ...customAliases, ...seededAliases].filter((t) => t.length >= 2))
+  );
+  if (tokens.length === 0) return [];
+
+  return expenses
+    .filter((exp) => {
+      const supField = normalizeNameKey(exp.supplierName);
+      const platField = normalizeNameKey(exp.platform);
+      return tokens.some(
+        (tok) =>
+          supField === tok ||
+          platField === tok ||
+          (tok.length >= 4 && (supField.includes(tok) || platField.includes(tok)))
+      );
+    })
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+export interface SupplierComputedMetrics {
+  matchedExpenses: Expense[];
+  lineCount: number;
+  distinctOrders: number;
+  liveSpend: number;
+  displayOrders: number;
+  displayPaid: number;
+  inTransitCount: number;
+  avgDaysToDeliver: number | null;
+  lastPurchaseDate: string;
+}
+
+export function computeSupplierMetrics(
+  supplier: Supplier,
+  expenses: Expense[]
+): SupplierComputedMetrics {
+  const matched = matchSupplierExpenses(supplier, expenses);
+  const problemSet = new Set(PROBLEM_PURCHASE_STATUSES.map((s) => s.toLowerCase()));
+  const transitSet = new Set(IN_TRANSIT_PURCHASE_STATUSES.map((s) => s.toLowerCase()));
+
+  let liveSpend = 0;
+  let inTransitCount = 0;
+  let daysSum = 0;
+  let daysCount = 0;
+  const orderKeys = new Set<string>();
+  let lastPurchaseDate = '';
+
+  for (const exp of matched) {
+    const metrics = computePurchaseRowMetrics(exp);
+    const st = (exp.purchaseStatus || '').trim().toLowerCase();
+    const isProblem = problemSet.has(st);
+
+    if (!isProblem) {
+      liveSpend = round2(liveSpend + metrics.totalCost);
+    }
+    if (transitSet.has(st)) {
+      inTransitCount += 1;
+    }
+    if (metrics.daysTaken !== null && metrics.daysTaken >= 0) {
+      daysSum += metrics.daysTaken;
+      daysCount += 1;
+    }
+    const oKey = (exp.orderId || exp.invoiceNo || exp.id).trim().toLowerCase();
+    if (oKey) orderKeys.add(oKey);
+    if (exp.date && (!lastPurchaseDate || exp.date > lastPurchaseDate)) {
+      lastPurchaseDate = exp.date;
+    }
+  }
+
+  const hasLive = matched.length > 0;
+  return {
+    matchedExpenses: matched,
+    lineCount: matched.length,
+    distinctOrders: orderKeys.size,
+    liveSpend,
+    displayOrders: hasLive ? matched.length : supplier.totalOrders || 0,
+    displayPaid: hasLive ? liveSpend : supplier.totalPaid || 0,
+    inTransitCount,
+    avgDaysToDeliver: daysCount > 0 ? round2(daysSum / daysCount) : null,
+    lastPurchaseDate,
+  };
 }

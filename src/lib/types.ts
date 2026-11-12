@@ -302,9 +302,34 @@ export interface Supplier {
   id: string;
   name: string;
   category: string;
+  vendorType?:
+    | 'Wholesale Market'
+    | 'Online Portal'
+    | 'Direct Manufacturer'
+    | 'Boutique Retail'
+    | 'Artisan Craft';
+  contactPerson?: string;
   phone: string;
+  whatsappNumber?: string;
   email?: string;
-  city?: string;
+  city?: string; // Market / Street / Shop Address / City
+  pincode?: string;
+  websiteUrl?: string;
+  instagramHandle?: string;
+  paymentTerms?:
+    | 'Immediate / UPI'
+    | 'Cash Counter'
+    | 'Prepaid Online'
+    | 'COD'
+    | 'Net 7 / Credit'
+    | 'Other';
+  upiId?: string;
+  gstin?: string;
+  leadTimeDays?: number;
+  reliabilityRating?: number; // 1 to 5
+  materialsSupplied?: string;
+  platformAlias?: string; // Comma-separated Expense platform/supplier aliases
+  notes?: string;
   totalOrders: number;
   totalPaid: number;
 }
@@ -321,7 +346,7 @@ export interface Payment {
 
 export interface HistoryLog {
   id: string;
-  category: 'All' | 'Product' | 'Order' | 'Recipe' | 'Inventory' | 'Expense' | 'Payment' | 'Customer' | 'Master List';
+  category: 'All' | 'Product' | 'Order' | 'Recipe' | 'Inventory' | 'Expense' | 'Payment' | 'Customer' | 'Supplier' | 'Master List';
   description: string;
   timestamp: string;
 }

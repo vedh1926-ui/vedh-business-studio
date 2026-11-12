@@ -8,7 +8,7 @@ interface HeaderProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   onOpenSidebar: () => void;
-  onQuickAdd: (type: 'order' | 'product' | 'stock' | 'expense' | 'recipe' | 'customer') => void;
+  onQuickAdd: (type: 'order' | 'product' | 'stock' | 'expense' | 'recipe' | 'customer' | 'supplier') => void;
 }
 
 export default function Header({
@@ -152,6 +152,16 @@ export default function Header({
                 >
                   <span className="w-2 h-2 rounded-full bg-sky-600"></span>
                   <span>New Customer</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onQuickAdd('supplier');
+                    setShowQuickMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-2 hover:bg-[#F9F5EE] text-[#2C181B] flex items-center space-x-2 border-t border-[#F2EBE0]"
+                >
+                  <span className="w-2 h-2 rounded-full bg-teal-600"></span>
+                  <span>New Supplier</span>
                 </button>
               </div>
             </>

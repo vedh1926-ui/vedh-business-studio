@@ -25,6 +25,8 @@ import NewStockModal from '@/components/NewStockModal';
 import NewExpenseModal from '@/components/NewExpenseModal';
 import OrderEnquiryCheckerModal from '@/components/OrderEnquiryCheckerModal';
 import CustomerModal, { CustomerFormPayload } from '@/components/CustomerModal';
+import SupplierModal, { SupplierFormPayload } from '@/components/SupplierModal';
+import SupplierDetailModal from '@/components/SupplierDetailModal';
 
 import {
   ActiveTab,
@@ -121,6 +123,10 @@ export default function Home() {
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [prefillOrderCustomer, setPrefillOrderCustomer] = useState<Customer | null>(null);
+  const [isNewSupplierOpen, setIsNewSupplierOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [viewingSupplier, setViewingSupplier] = useState<Supplier | null>(null);
+  const [prefillExpenseSupplier, setPrefillExpenseSupplier] = useState<Supplier | null>(null);
   const [syncDiagnostic, setSyncDiagnostic] = useState<SupabaseSyncDiagnostic | undefined>(undefined);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1485,23 +1491,78 @@ export default function Home() {
   };
 
   // Suppliers Handlers
-  const handleAddSupplier = (supData: Omit<Supplier, 'id' | 'totalOrders' | 'totalPaid'>) => {
+  const handleSaveSupplier = (data: SupplierFormPayload, existingId?: string) => {
+    const cleanPhoneVal = (v?: string) => {
+      const trimmed = (v || '').trim();
+      return trimmed && trimmed !== '—' && trimmed !== '-' ? trimmed : '';
+    };
+
+    const newKey = normalizeNameKey(data.name);
+    const targetExisting = existingId
+      ? suppliers.find((s) => s.id === existingId)
+      : suppliers.find((s) => normalizeNameKey(s.name) === newKey);
+
+    if (targetExisting) {
+      const oldKey = normalizeNameKey(targetExisting.name);
+      const updatedSupplier: Supplier = {
+        ...targetExisting,
+        ...data,
+        id: targetExisting.id,
+        phone: cleanPhoneVal(data.phone) || cleanPhoneVal(data.whatsappNumber) || '—',
+      };
+
+      const nextSuppliers = suppliers.map((s) =>
+        s.id === targetExisting.id ? updatedSupplier : s
+      );
+      setSuppliers(nextSuppliers);
+      persist('vedh_suppliers', nextSuppliers);
+
+      if (viewingSupplier?.id === targetExisting.id) {
+        setViewingSupplier(updatedSupplier);
+      }
+
+      if (newKey !== oldKey) {
+        let expensesChanged = false;
+        const nextExpenses = expenses.map((e) => {
+          if (normalizeNameKey(e.supplierName) !== oldKey) return e;
+          expensesChanged = true;
+          return { ...e, supplierName: data.name };
+        });
+        if (expensesChanged) {
+          setExpenses(nextExpenses);
+          persist('vedh_expenses', nextExpenses);
+        }
+      }
+
+      addLog('Supplier', `Supplier updated: ${data.name} (${data.category})`);
+      showToast(`Saved supplier "${data.name}"`);
+      return;
+    }
+
     const newSup: Supplier = {
-      ...supData,
+      ...data,
       id: `sup-${Date.now()}`,
+      phone: cleanPhoneVal(data.phone) || cleanPhoneVal(data.whatsappNumber) || '—',
       totalOrders: 0,
       totalPaid: 0,
     };
     const updated = [newSup, ...suppliers];
     setSuppliers(updated);
     persist('vedh_suppliers', updated);
-    addLog('Product', `Material supplier added: ${newSup.name} (${newSup.category})`);
+    addLog('Supplier', `Material supplier added: ${newSup.name} (${newSup.category})`);
+    showToast(`Added supplier "${newSup.name}"`);
   };
 
   const handleDeleteSupplier = (id: string) => {
+    const target = suppliers.find((s) => s.id === id);
     const updated = suppliers.filter((s) => s.id !== id);
     setSuppliers(updated);
     persist('vedh_suppliers', updated);
+    if (viewingSupplier?.id === id) setViewingSupplier(null);
+    if (target) {
+      addLog('Supplier', `Supplier deleted: ${target.name}`);
+      showToast(`Deleted supplier "${target.name}"`);
+    }
   };
 
   // Payments Handlers
@@ -1533,7 +1594,7 @@ export default function Home() {
 
   // Quick Action Dispatcher
   const handleQuickAdd = (
-    type: 'order' | 'product' | 'stock' | 'expense' | 'recipe' | 'customer'
+    type: 'order' | 'product' | 'stock' | 'expense' | 'recipe' | 'customer' | 'supplier'
   ) => {
     if (type === 'order') {
       setEditingOrder(null);
@@ -1548,11 +1609,16 @@ export default function Home() {
     if (type === 'recipe') setActiveTab('recipe');
     if (type === 'expense') {
       setEditingExpense(null);
+      setPrefillExpenseSupplier(null);
       setIsNewExpenseOpen(true);
     }
     if (type === 'customer') {
       setEditingCustomer(null);
       setIsNewCustomerOpen(true);
+    }
+    if (type === 'supplier') {
+      setEditingSupplier(null);
+      setIsNewSupplierOpen(true);
     }
   };
 
@@ -1751,9 +1817,23 @@ export default function Home() {
           {activeTab === 'suppliers' && (
             <SuppliersView
               suppliers={suppliers}
+              expenses={expenses}
               categories={getActiveOptions('category')}
-              onAddSupplier={handleAddSupplier}
+              onOpenNewSupplier={() => {
+                setEditingSupplier(null);
+                setIsNewSupplierOpen(true);
+              }}
+              onViewSupplier={(sup) => setViewingSupplier(sup)}
+              onEditSupplier={(sup) => {
+                setEditingSupplier(sup);
+                setIsNewSupplierOpen(true);
+              }}
               onDeleteSupplier={handleDeleteSupplier}
+              onRecordPurchaseForSupplier={(sup) => {
+                setEditingExpense(null);
+                setPrefillExpenseSupplier(sup);
+                setIsNewExpenseOpen(true);
+              }}
             />
           )}
 
@@ -1878,10 +1958,42 @@ export default function Home() {
         />
       )}
 
+      {isNewSupplierOpen && (
+        <SupplierModal
+          key={editingSupplier?.id ?? 'new-supplier'}
+          initialSupplier={editingSupplier}
+          categories={getActiveOptions('category')}
+          existingSuppliers={suppliers}
+          onClose={() => {
+            setIsNewSupplierOpen(false);
+            setEditingSupplier(null);
+          }}
+          onSave={handleSaveSupplier}
+        />
+      )}
+
+      {viewingSupplier && (
+        <SupplierDetailModal
+          supplier={suppliers.find((s) => s.id === viewingSupplier.id) || viewingSupplier}
+          expenses={expenses}
+          onClose={() => setViewingSupplier(null)}
+          onEdit={(sup) => {
+            setEditingSupplier(sup);
+            setIsNewSupplierOpen(true);
+          }}
+          onRecordPurchase={(sup) => {
+            setEditingExpense(null);
+            setPrefillExpenseSupplier(sup);
+            setIsNewExpenseOpen(true);
+          }}
+        />
+      )}
+
       {isNewExpenseOpen && (
         <NewExpenseModal
-          key={editingExpense?.id ?? 'new-expense'}
+          key={editingExpense?.id ?? prefillExpenseSupplier?.id ?? 'new-expense'}
           initialExpense={editingExpense}
+          prefillSupplier={prefillExpenseSupplier}
           platforms={getActiveOptions('platform')}
           categories={getActiveOptions('category')}
           paymentModes={getActiveOptions('payment_mode')}
@@ -1890,6 +2002,7 @@ export default function Home() {
           onClose={() => {
             setIsNewExpenseOpen(false);
             setEditingExpense(null);
+            setPrefillExpenseSupplier(null);
           }}
           onSave={handleSaveExpense}
         />

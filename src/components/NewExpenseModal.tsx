@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Expense } from '@/lib/types';
+import { Expense, Supplier } from '@/lib/types';
 import { round2, formatINR } from '@/lib/utils';
 import { diffCalendarDays } from '@/lib/purchaseFormulas';
 import { getPurchaseMedia, savePurchaseMedia } from '@/lib/purchaseMediaStore';
@@ -9,6 +9,7 @@ import { X, Calculator, FileText, Image as ImageIcon, Upload, Trash2 } from 'luc
 
 interface NewExpenseModalProps {
   initialExpense?: Expense | null;
+  prefillSupplier?: Supplier | null;
   platforms?: string[];
   categories?: string[];
   paymentModes?: string[];
@@ -24,6 +25,7 @@ interface NewExpenseModalProps {
 
 export default function NewExpenseModal({
   initialExpense,
+  prefillSupplier = null,
   platforms = [
     'Amazon',
     'Meesho',
@@ -57,15 +59,24 @@ export default function NewExpenseModal({
   const isEditing = Boolean(initialExpense);
   const today = new Date().toISOString().split('T')[0];
 
+  const matchedPlatform = prefillSupplier
+    ? platforms.find(
+        (p) =>
+          p.toLowerCase() === prefillSupplier.name.toLowerCase() ||
+          prefillSupplier.name.toLowerCase().includes(p.toLowerCase())
+      ) ||
+      (prefillSupplier.vendorType === 'Wholesale Market' ? 'Local market' : platforms[0])
+    : platforms[0] || 'Amazon';
+
   const [title, setTitle] = useState(initialExpense?.title || '');
   const [date, setDate] = useState(initialExpense?.date || today);
   const [orderId, setOrderId] = useState(initialExpense?.orderId || '');
   const [platform, setPlatform] = useState(
-    initialExpense?.platform || platforms[0] || 'Amazon'
+    initialExpense?.platform || matchedPlatform || 'Amazon'
   );
   const [dimensions, setDimensions] = useState(initialExpense?.dimensions || '');
   const [category, setCategory] = useState<string>(
-    initialExpense?.category || categories[0] || 'Packaging'
+    initialExpense?.category || prefillSupplier?.category || categories[0] || 'Packaging'
   );
   const [qtyStr, setQtyStr] = useState(String(initialExpense?.qty ?? 1));
   const [piecesStr, setPiecesStr] = useState(String(initialExpense?.piecesPerPack ?? 1));
@@ -89,7 +100,9 @@ export default function NewExpenseModal({
   const [actualDelivery, setActualDelivery] = useState(
     initialExpense?.actualDelivery || ''
   );
-  const [supplierName, setSupplierName] = useState(initialExpense?.supplierName || '');
+  const [supplierName, setSupplierName] = useState(
+    initialExpense?.supplierName || prefillSupplier?.name || ''
+  );
   const [invoiceNo, setInvoiceNo] = useState(initialExpense?.invoiceNo || '');
   const [receiptFile, setReceiptFile] = useState(initialExpense?.receiptFile || '');
   const [receiptUrl, setReceiptUrl] = useState<string | undefined>(initialExpense?.receiptUrl);
