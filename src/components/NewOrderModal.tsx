@@ -32,6 +32,7 @@ export default function NewOrderModal({
   );
   const [customerName, setCustomerName] = useState(initialOrder?.customerName || '');
   const [customerPhone, setCustomerPhone] = useState(initialOrder?.customerPhone || '');
+  const [customerLocation, setCustomerLocation] = useState(initialOrder?.customerLocation || '');
   const [occasion, setOccasion] = useState(initialOrder?.occasion || '');
   const [targetDate, setTargetDate] = useState(initialOrder?.targetDeliveryDate || '');
   const [deliveredOn, setDeliveredOn] = useState(initialOrder?.deliveredOn || '');
@@ -118,6 +119,10 @@ export default function NewOrderModal({
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim() || undefined,
         customerEmail: initialOrder?.customerEmail,
+        customerLocation: customerLocation.trim() || undefined,
+        shipping: initialOrder?.shipping,
+        tax: initialOrder?.tax,
+        invoiceNumber: initialOrder?.invoiceNumber,
         items,
         totalAmount,
         advancePaid,
@@ -189,7 +194,7 @@ export default function NewOrderModal({
           </div>
 
           {/* Customer info */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[#423A3A] font-semibold mb-1">
                 Customer Name *
@@ -213,6 +218,19 @@ export default function NewOrderModal({
                 placeholder="9848481203"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[#423A3A] font-semibold mb-1">
+                Delivery Location / Address
+              </label>
+              <input
+                type="text"
+                placeholder="Flat / Society / City for invoice"
+                value={customerLocation}
+                onChange={(e) => setCustomerLocation(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
               />
             </div>

@@ -1,49 +1,166 @@
 'use client';
 
-import React from 'react';
-import Image from 'next/image';
-import { Order } from '@/lib/types';
-import { formatINR } from '@/lib/utils';
-import { X, Printer, Share2, Download, CheckCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Customer, Order } from '@/lib/types';
+import {
+  extractOrderLocation,
+  formatInvoiceDisplayDate,
+  formatInvoiceNumber,
+} from '@/lib/oprFormulas';
+import { formatINR, round2 } from '@/lib/utils';
+import VedhInvoiceTemplate from './VedhInvoiceTemplate';
+import {
+  X,
+  Printer,
+  Share2,
+  SlidersHorizontal,
+  Save,
+  Check,
+  MapPin,
+} from 'lucide-react';
+
+export interface InvoiceOrderDetailsPatch {
+  customerLocation?: string;
+  deliveredOn?: string;
+  targetDeliveryDate?: string;
+  shipping?: number;
+  tax?: number;
+  invoiceNumber?: string;
+}
 
 interface InvoiceModalProps {
   order: Order | null;
+  customers?: Customer[];
   onClose: () => void;
+  onSaveOrderInvoiceDetails?: (order: Order, patch: InvoiceOrderDetailsPatch) => void;
 }
 
-export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
+export default function InvoiceModal({
+  order,
+  customers = [],
+  onClose,
+  onSaveOrderInvoiceDetails,
+}: InvoiceModalProps) {
+  const [showCustomize, setShowCustomize] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [locationText, setLocationText] = useState('');
+  const [customerSubtitle, setCustomerSubtitle] = useState('');
+  const [shippingStr, setShippingStr] = useState('0');
+  const [taxStr, setTaxStr] = useState('0');
+  const [showPaymentSummary, setShowPaymentSummary] = useState(false);
+  const [savedNotice, setSavedNotice] = useState(false);
+
+  useEffect(() => {
+    if (!order) return;
+    setInvoiceNumber(formatInvoiceNumber(order));
+    setInvoiceDate(order.createdAt || '');
+    setDeliveryDate(order.deliveredOn || order.targetDeliveryDate || '');
+    setLocationText(extractOrderLocation(order, customers));
+    setCustomerSubtitle('');
+    setShippingStr(String(order.shipping ?? 0));
+    setTaxStr(String(order.tax ?? 0));
+    setShowPaymentSummary(false);
+    setSavedNotice(false);
+  }, [order, customers]);
+
   if (!order) return null;
 
-  const invoiceNumber = `INV-${order.orderNumber.replace('#', '')}`;
-  const invoiceDate = order.createdAt;
+  const shippingVal = Math.max(0, round2(parseFloat(shippingStr) || 0));
+  const taxVal = Math.max(0, round2(parseFloat(taxStr) || 0));
+  const subTotal = round2(
+    order.items?.length
+      ? order.items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0)
+      : order.totalAmount || 0
+  );
+  const grandTotal = round2(subTotal + taxVal + shippingVal);
+  const effectiveBalance = round2(Math.max(0, grandTotal - (order.advancePaid || 0)));
 
   const handlePrint = () => {
     window.print();
   };
 
+  const handleSaveDetails = () => {
+    if (!onSaveOrderInvoiceDetails) return;
+    const isDeliveredStatus = order.status === 'Delivered';
+    onSaveOrderInvoiceDetails(order, {
+      customerLocation: locationText.trim() || undefined,
+      deliveredOn: isDeliveredStatus ? deliveryDate || undefined : order.deliveredOn,
+      targetDeliveryDate: !isDeliveredStatus
+        ? deliveryDate || undefined
+        : order.targetDeliveryDate,
+      shipping: shippingVal,
+      tax: taxVal,
+      invoiceNumber: invoiceNumber.trim() || undefined,
+    });
+    setSavedNotice(true);
+    setTimeout(() => setSavedNotice(false), 2200);
+  };
+
   const handleWhatsAppShare = () => {
+    const itemsSummary = order.items
+      .map((it) => `• ${it.productName} × ${it.quantity} (${formatINR(it.quantity * it.unitPrice)})`)
+      .join('\n');
+    const delivLabel = deliveryDate
+      ? `\nDelivery Date: ${formatInvoiceDisplayDate(deliveryDate)}`
+      : '';
+    const locLabel = locationText.trim() ? `\nDelivery Location: ${locationText.trim()}` : '';
+
     const text = encodeURIComponent(
-      `Hello ${order.customerName},\n\nThank you for choosing VEDH Handicrafts! Here is your invoice summary for ${order.orderNumber}:\n\nTotal Amount: ${formatINR(order.totalAmount)}\nAdvance Received: ${formatINR(order.advancePaid)}\nBalance Due: ${formatINR(order.balanceDue)}\nStatus: ${order.status}\n\nWe are lovingly handcrafting your pieces.\nWarm regards,\nVEDH Business Studio`
+      `Hello ${order.customerName},\n\nThank you for choosing *VEDH Artistry* ("Little things, made meaningful."). Here is your invoice ${invoiceNumber} for order ${order.orderNumber}:${locLabel}${delivLabel}\n\n${itemsSummary}\n\nSubtotal: ${formatINR(subTotal)}${
+        shippingVal > 0 ? `\nShipping: ${formatINR(shippingVal)}` : ''
+      }${taxVal > 0 ? `\nTax: ${formatINR(taxVal)}` : ''}\nTotal Amount: ${formatINR(
+        grandTotal
+      )}\nAdvance Paid: ${formatINR(order.advancePaid)}\nBalance Due: ${formatINR(
+        effectiveBalance
+      )}\n\nwww.vedhartistry.com | @vedh.artistry`
     );
-    window.open(`https://wa.me/${order.customerPhone?.replace(/[^0-9]/g, '') || ''}?text=${text}`, '_blank');
+    window.open(
+      `https://wa.me/${order.customerPhone?.replace(/[^0-9]/g, '') || ''}?text=${text}`,
+      '_blank'
+    );
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-[#E8DDCF] overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/65 backdrop-blur-sm flex justify-center p-2 sm:p-6 print:static print:overflow-visible print:bg-transparent print:backdrop-blur-none print:p-0 print:block">
+      <div className="relative w-full max-w-[840px] my-auto bg-[#FAF5EE] rounded-2xl shadow-2xl border border-[#E8DDCF] overflow-hidden print:w-full print:max-w-none print:my-0 print:bg-transparent print:border-0 print:rounded-none print:shadow-none">
         {/* Modal Top Actions (no-print) */}
-        <div className="no-print bg-[#FAF5EE] border-b border-[#E8DDCF] px-6 py-3.5 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
+        <div className="no-print bg-[#FAF5EE] border-b border-[#E8DDCF] px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-serif font-bold text-[#541523] text-sm">
-              Invoice #{invoiceNumber}
+              Invoice {invoiceNumber}
             </span>
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium">
-              Ready to Share
+              {order.orderNumber} · {order.customerName}
             </span>
+            {!locationText.trim() && (
+              <button
+                type="button"
+                onClick={() => setShowCustomize(true)}
+                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 hover:bg-amber-200 transition"
+              >
+                <MapPin size={11} />
+                <span>+ Add location</span>
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
+              onClick={() => setShowCustomize((v) => !v)}
+              className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition ${
+                showCustomize
+                  ? 'bg-[#6D1C29] text-white border-[#6D1C29]'
+                  : 'bg-white text-[#541523] border-[#D9C9B4] hover:bg-[#F2EBE0]'
+              }`}
+            >
+              <SlidersHorizontal size={13} />
+              <span>Edit Details</span>
+            </button>
+            <button
+              type="button"
               onClick={handleWhatsAppShare}
               className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition"
             >
@@ -51,6 +168,7 @@ export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
               <span>WhatsApp</span>
             </button>
             <button
+              type="button"
               onClick={handlePrint}
               className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-white text-xs font-semibold transition"
             >
@@ -58,8 +176,9 @@ export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
               <span>Print / PDF</span>
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-[#F2EBE0] transition"
+              className="p-1.5 text-stone-500 hover:text-stone-800 rounded-lg hover:bg-[#F2EBE0] transition"
               aria-label="Close modal"
             >
               <X size={18} />
@@ -67,148 +186,144 @@ export default function InvoiceModal({ order, onClose }: InvoiceModalProps) {
           </div>
         </div>
 
-        {/* Printable Invoice Container */}
-        <div className="p-8 sm:p-10 bg-white text-[#2C181B]" id="printable-invoice">
-          {/* Header with Logo */}
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between pb-6 border-b border-[#E8DDCF] gap-4">
-            <div className="flex items-center space-x-4">
-              <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-[#D4AF37]/60 shadow-sm shrink-0 bg-[#3D0E18]">
-                <Image
-                  src="/vedh-logo.jpg"
-                  alt="VEDH Logo"
-                  fill
-                  className="object-cover"
+        {/* Optional Customize Bar (no-print) */}
+        {showCustomize && (
+          <div className="no-print bg-white border-b border-[#E8DDCF] px-4 sm:px-6 py-4 text-xs space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block font-semibold text-[#423A3A] mb-1">
+                  Delivery Location / Address
+                </label>
+                <textarea
+                  rows={2}
+                  value={locationText}
+                  onChange={(e) => setLocationText(e.target.value)}
+                  placeholder="House / Flat, Society, Street, City..."
+                  className="w-full px-2.5 py-1.5 border border-[#D9C9B4] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#541523] resize-none"
                 />
               </div>
-              <div>
-                <h1 className="text-2xl font-serif font-bold text-[#541523] tracking-wide">
-                  VEDH
-                </h1>
-                <p className="text-xs text-[#8F243C] font-medium uppercase tracking-wider">
-                  Luxury Handicrafts &amp; Return Gifts
-                </p>
-                <p className="text-[11px] text-[#7A6E6E] italic mt-0.5">
-                  &quot;Preserving traditions with designer art&quot;
-                </p>
-              </div>
-            </div>
 
-            <div className="sm:text-right">
-              <div className="text-xl font-serif font-bold text-[#2C181B]">
-                TAX INVOICE
-              </div>
-              <div className="text-xs text-[#7A6E6E] mt-1">
-                Invoice No: <span className="font-mono font-bold text-[#541523]">{invoiceNumber}</span>
-              </div>
-              <div className="text-xs text-[#7A6E6E]">
-                Date: {invoiceDate}
-              </div>
-              {order.targetDeliveryDate && (
-                <div className="text-xs text-[#A67E1F] font-medium">
-                  Delivery Target: {order.targetDeliveryDate}
+              <div className="space-y-2">
+                <div>
+                  <label className="block font-semibold text-[#423A3A] mb-1">
+                    Invoice No.
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-[#D9C9B4] rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                  />
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Billed To Section */}
-          <div className="grid grid-cols-2 gap-6 my-6 text-xs">
-            <div>
-              <div className="font-semibold uppercase tracking-wider text-[#8F243C] text-[10px] mb-1">
-                Billed To:
-              </div>
-              <div className="text-sm font-bold text-[#2C181B]">
-                {order.customerName}
-              </div>
-              {order.customerPhone && (
-                <div className="text-[#635B5B]">{order.customerPhone}</div>
-              )}
-              {order.customerEmail && (
-                <div className="text-[#635B5B]">{order.customerEmail}</div>
-              )}
-              {order.occasion && (
-                <div className="mt-1 text-[11px] text-[#8F243C] font-medium">
-                  Occasion: {order.occasion}
+                <div>
+                  <label className="block font-semibold text-[#423A3A] mb-1">
+                    Subtitle (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={customerSubtitle}
+                    onChange={(e) => setCustomerSubtitle(e.target.value)}
+                    placeholder="Occasion / Role..."
+                    className="w-full px-2.5 py-1.5 border border-[#D9C9B4] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                  />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-semibold text-[#423A3A] mb-1">
+                      Invoice Date
+                    </label>
+                    <input
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => setInvoiceDate(e.target.value)}
+                      className="w-full px-2 py-1.5 border border-[#D9C9B4] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-[#423A3A] mb-1">
+                      Delivery Date
+                    </label>
+                    <input
+                      type="date"
+                      value={deliveryDate}
+                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      className="w-full px-2 py-1.5 border border-[#D9C9B4] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-semibold text-[#423A3A] mb-1">
+                      Tax (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={taxStr}
+                      onChange={(e) => setTaxStr(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-[#D9C9B4] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-[#423A3A] mb-1">
+                      Shipping (Rs.)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={shippingStr}
+                      onChange={(e) => setShippingStr(e.target.value)}
+                      className="w-full px-2.5 py-1.5 border border-[#D9C9B4] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F2EBE0]">
+              <label className="inline-flex items-center gap-2 text-[#423A3A] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showPaymentSummary}
+                  onChange={(e) => setShowPaymentSummary(e.target.checked)}
+                  className="rounded border-[#D9C9B4] text-[#541523] focus:ring-[#541523]"
+                />
+                <span>Show Advance Paid &amp; Balance Due under Total</span>
+              </label>
+
+              {onSaveOrderInvoiceDetails && (
+                <button
+                  type="button"
+                  onClick={handleSaveDetails}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-white font-semibold transition"
+                >
+                  {savedNotice ? <Check size={13} /> : <Save size={13} />}
+                  <span>{savedNotice ? 'Saved to Order' : 'Save to Order'}</span>
+                </button>
               )}
             </div>
-
-            <div className="text-right">
-              <div className="font-semibold uppercase tracking-wider text-[#8F243C] text-[10px] mb-1">
-                Issued By:
-              </div>
-              <div className="text-sm font-bold text-[#2C181B]">
-                VEDH Business Studio
-              </div>
-              <div className="text-[#635B5B]">Artisanal Design Studio</div>
-              <div className="text-[#635B5B]">India</div>
-              <div className="text-[11px] text-[#8F243C]">GPay / PhonePe / UPI Accepted</div>
-            </div>
           </div>
+        )}
 
-          {/* Line Items Table */}
-          <div className="border border-[#E8DDCF] rounded-xl overflow-hidden my-6">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#FAF5EE] text-[#541523] border-b border-[#E8DDCF] font-semibold">
-                <tr>
-                  <th className="p-3">Item Description</th>
-                  <th className="p-3 text-center">Qty</th>
-                  <th className="p-3 text-right">Unit Price</th>
-                  <th className="p-3 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F2EBE0]">
-                {order.items.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-[#FCFAF7]">
-                    <td className="p-3">
-                      <div className="font-semibold text-[#2C181B]">{item.productName}</div>
-                      {order.notes && idx === 0 && (
-                        <div className="text-[10px] text-[#7A6E6E] italic mt-0.5">
-                          Note: {order.notes}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3 text-center font-medium">{item.quantity}</td>
-                    <td className="p-3 text-right font-medium">{formatINR(item.unitPrice)}</td>
-                    <td className="p-3 text-right font-bold font-serif text-[#2C181B]">
-                      {formatINR(item.quantity * item.unitPrice)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Totals Section */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 pt-4 border-t border-[#E8DDCF]">
-            <div className="text-xs text-[#7A6E6E] max-w-xs space-y-1">
-              <div className="font-semibold text-[#2C181B]">Terms &amp; Craftsmanship Note:</div>
-              <p className="text-[11px] leading-relaxed">
-                All VEDH creations are uniquely handmade. Minor variations in texture, shade, and wax marbling celebrate the beauty of handcrafted heritage art.
-              </p>
-            </div>
-
-            <div className="w-full sm:w-64 space-y-2 text-xs">
-              <div className="flex justify-between text-[#635B5B]">
-                <span>Subtotal:</span>
-                <span className="font-semibold text-[#2C181B]">{formatINR(order.totalAmount)}</span>
-              </div>
-              <div className="flex justify-between text-emerald-800">
-                <span>Advance Paid:</span>
-                <span className="font-semibold">{formatINR(order.advancePaid)}</span>
-              </div>
-              <div className="flex justify-between text-[#541523] pt-2 border-t border-[#E8DDCF] font-serif text-base font-bold">
-                <span>Balance Due:</span>
-                <span>{formatINR(order.balanceDue)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer Signature */}
-          <div className="mt-10 pt-6 border-t border-[#E8DDCF] flex items-center justify-between text-[11px] text-[#8C7D7D]">
-            <span>Thank you for supporting authentic artisanal handicrafts!</span>
-            <span className="font-serif font-bold text-[#541523]">Authorized Signature</span>
-          </div>
+        {/* Printable A4 Invoice Preview Canvas */}
+        <div className="p-3 sm:p-5 overflow-x-auto bg-[#EDE5D9] print:p-0 print:overflow-visible print:bg-transparent">
+          <VedhInvoiceTemplate
+            order={order}
+            customers={customers}
+            invoiceNumberOverride={invoiceNumber}
+            invoiceDateOverride={invoiceDate}
+            deliveryDateOverride={deliveryDate}
+            locationOverride={locationText}
+            subtitleOverride={customerSubtitle}
+            taxOverride={taxVal}
+            shippingOverride={shippingVal}
+            showPaymentSummary={showPaymentSummary}
+          />
         </div>
       </div>
     </div>

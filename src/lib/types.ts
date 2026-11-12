@@ -13,10 +13,14 @@ export interface Order {
   customerName: string;
   customerPhone?: string;
   customerEmail?: string;
+  customerLocation?: string;
   items: OrderItem[];
   totalAmount: number;
   advancePaid: number;
   balanceDue: number;
+  shipping?: number;
+  tax?: number;
+  invoiceNumber?: string;
   status: OrderStatus;
   paymentMode?: string;
   createdAt: string;

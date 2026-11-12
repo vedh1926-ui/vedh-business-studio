@@ -18,7 +18,7 @@ import SettingsView from '@/components/SettingsView';
 import HistoryView from '@/components/HistoryView';
 import MasterListsView from '@/components/MasterListsView';
 
-import InvoiceModal from '@/components/InvoiceModal';
+import InvoiceModal, { InvoiceOrderDetailsPatch } from '@/components/InvoiceModal';
 import NewOrderModal from '@/components/NewOrderModal';
 import NewProductModal from '@/components/NewProductModal';
 import NewStockModal from '@/components/NewStockModal';
@@ -55,6 +55,7 @@ import {
   initialMasterLists,
 } from '@/lib/mockData';
 import {
+  buildCombinedInvoiceOrder,
   buildCustomersFromOrders,
   computeInventoryLedgerMetrics,
   getLocalTodayYmd,
@@ -537,6 +538,44 @@ export default function Home() {
       return nextPayments;
     });
     addLog('Payment', `Marked ₹${remaining} balance paid for ${target.orderNumber} (${target.customerName})`);
+  };
+
+  const handleSaveOrderInvoiceDetails = (
+    targetOrder: Order,
+    patch: InvoiceOrderDetailsPatch
+  ) => {
+    const groupKey = `${targetOrder.orderNumber.trim().toUpperCase()}__${normalizeNameKey(
+      targetOrder.customerName
+    )}__${targetOrder.createdAt}`;
+    const updated = orders.map((o) => {
+      const k = `${o.orderNumber.trim().toUpperCase()}__${normalizeNameKey(
+        o.customerName
+      )}__${o.createdAt}`;
+      if (k !== groupKey) return o;
+      return {
+        ...o,
+        ...(patch.customerLocation !== undefined
+          ? { customerLocation: patch.customerLocation }
+          : {}),
+        ...(patch.deliveredOn !== undefined ? { deliveredOn: patch.deliveredOn } : {}),
+        ...(patch.targetDeliveryDate !== undefined
+          ? { targetDeliveryDate: patch.targetDeliveryDate }
+          : {}),
+        ...(patch.shipping !== undefined ? { shipping: patch.shipping } : {}),
+        ...(patch.tax !== undefined ? { tax: patch.tax } : {}),
+        ...(patch.invoiceNumber !== undefined ? { invoiceNumber: patch.invoiceNumber } : {}),
+      };
+    });
+    setOrders(updated);
+    persist('vedh_orders', updated);
+    syncCustomersFromOrdersList(updated);
+    const refreshedMatch = updated.find((o) => o.id === targetOrder.id) || targetOrder;
+    setSelectedOrderForInvoice(buildCombinedInvoiceOrder(refreshedMatch, updated));
+    addLog(
+      'Order',
+      `Updated invoice details for ${targetOrder.orderNumber} (${targetOrder.customerName})`
+    );
+    showToast(`Saved invoice details for ${targetOrder.orderNumber}`);
   };
 
   // Product Handlers
@@ -1159,21 +1198,27 @@ export default function Home() {
   const lowStockBadgeCount = inventory.filter((i) => i.stock <= i.reorderLevel).length;
 
   return (
-    <div className="min-h-screen bg-[#FAF6F0] flex">
+    <div className="min-h-screen bg-[#FAF6F0] flex print:block print:min-h-0 print:bg-transparent">
       {/* Persistent Burgundy Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        isOpen={isSidebarOpen}
-        setIsOpen={setIsSidebarOpen}
-        openOrdersCount={openOrdersBadgeCount}
-        lowStockCount={lowStockBadgeCount}
-        syncDiagnostic={syncDiagnostic}
-        lastSavedAt={lastSavedAt}
-      />
+      <div className={selectedOrderForInvoice ? 'no-print' : undefined}>
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isOpen={isSidebarOpen}
+          setIsOpen={setIsSidebarOpen}
+          openOrdersCount={openOrdersBadgeCount}
+          lowStockCount={lowStockBadgeCount}
+          syncDiagnostic={syncDiagnostic}
+          lastSavedAt={lastSavedAt}
+        />
+      </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+      <div
+        className={`flex-1 lg:pl-64 flex flex-col min-w-0 ${
+          selectedOrderForInvoice ? 'no-print' : ''
+        }`}
+      >
         <Header
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -1293,6 +1338,7 @@ export default function Home() {
           {activeTab === 'invoices' && (
             <InvoicesView
               orders={orders}
+              customers={customers}
               onSelectOrderForInvoice={(order) => setSelectedOrderForInvoice(order)}
             />
           )}
@@ -1391,6 +1437,8 @@ export default function Home() {
       {selectedOrderForInvoice && (
         <InvoiceModal
           order={selectedOrderForInvoice}
+          customers={customers}
+          onSaveOrderInvoiceDetails={handleSaveOrderInvoiceDetails}
           onClose={() => setSelectedOrderForInvoice(null)}
         />
       )}

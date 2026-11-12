@@ -1,5 +1,27 @@
 import type { Metadata } from 'next';
+import { DM_Sans, Cal_Sans, Sacramento } from 'next/font/google';
 import './globals.css';
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '700'],
+  variable: '--font-invoice-sans',
+  display: 'swap',
+});
+
+const calSans = Cal_Sans({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-invoice-display',
+  display: 'swap',
+});
+
+const sacramento = Sacramento({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-invoice-script',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'VEDH Business Studio | Artisanal Handicrafts & Operations Hub',
@@ -29,7 +51,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html
+      lang="en"
+      className={`${dmSans.variable} ${calSans.variable} ${sacramento.variable}`}
+    >
       <body className="min-h-screen bg-[#FAF6F0] text-[#241A1B] antialiased">
         {children}
       </body>

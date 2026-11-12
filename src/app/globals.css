@@ -36,11 +36,36 @@
   background: #C4B19B;
 }
 
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
 @media print {
+  html,
   body {
-    background-color: white !important;
+    background-color: #fbf4eb !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   .no-print {
     display: none !important;
+  }
+  #printable-invoice {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    height: 297mm !important;
+    max-width: none !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }

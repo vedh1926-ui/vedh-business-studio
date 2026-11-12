@@ -771,6 +771,51 @@ export function evaluateOrderEnquiry(
   };
 }
 
+const INVOICE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function extractAddressFromNotes(notes?: string): string {
+  if (!notes) return '';
+  const m = notes.match(/(?:^|[,\n|•]\s*)(?:delivery\s*)?address\s*[:\-]\s*(.+)$/i);
+  if (m?.[1]) return m[1].trim();
+  return '';
+}
+
+export function extractOrderLocation(order: Order, customers: Customer[] = []): string {
+  if (order.customerLocation?.trim()) return order.customerLocation.trim();
+  const matchedCustomer = customers.find(
+    (c) => normalizeNameKey(c.name) === normalizeNameKey(order.customerName)
+  );
+  if (matchedCustomer?.city?.trim()) return matchedCustomer.city.trim();
+  const fromNotes = extractAddressFromNotes(order.notes);
+  if (fromNotes) return fromNotes;
+  const occMatch = order.occasion?.match(/\(([^)]+)\)\s*$/);
+  if (occMatch?.[1]?.trim()) return occMatch[1].trim();
+  return '';
+}
+
+export function formatInvoiceNumber(order: Pick<Order, 'orderNumber' | 'invoiceNumber'>): string {
+  if (order.invoiceNumber?.trim()) return order.invoiceNumber.trim();
+  const raw = (order.orderNumber || '').trim();
+  if (!raw) return '#001';
+  if (raw.startsWith('#')) return raw;
+  const ordMatch = raw.match(/^ORD[-_ ]*(.+)$/i);
+  if (ordMatch?.[1]) return `#${ordMatch[1].trim()}`;
+  return `#${raw}`;
+}
+
+export function formatInvoiceDisplayDate(ymd?: string): string {
+  if (!ymd) return '';
+  const trimmed = ymd.trim();
+  const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return trimmed;
+  const year = m[1];
+  const monthIdx = parseInt(m[2], 10) - 1;
+  const day = m[3];
+  const monthLabel = INVOICE_MONTHS[monthIdx];
+  if (!monthLabel) return trimmed;
+  return `${monthLabel}, ${day} ${year}`;
+}
+
 /**
  * Aggregates Customer records directly from Orders so customer spend and counts stay in sync.
  */
@@ -786,6 +831,7 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
       name: string;
       phone: string;
       email: string;
+      city: string;
       orderGroups: Set<string>;
       totalSpent: number;
       lastOrderDate: string;
@@ -802,6 +848,8 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
         ? round2(order.items.reduce((s, it) => s + it.quantity * it.unitPrice, 0))
         : round2(order.totalAmount || 0);
     const groupKey = `${order.orderNumber.trim().toUpperCase()}__${order.createdAt}`;
+    const resolvedLocation =
+      order.customerLocation?.trim() || extractAddressFromNotes(order.notes);
 
     const prev = map.get(key);
     if (prev) {
@@ -809,6 +857,7 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
       prev.totalSpent = round2(prev.totalSpent + lineTotal);
       if (!prev.phone && order.customerPhone) prev.phone = order.customerPhone;
       if (!prev.email && order.customerEmail) prev.email = order.customerEmail;
+      if (resolvedLocation) prev.city = resolvedLocation;
       if (order.createdAt && (!prev.lastOrderDate || order.createdAt > prev.lastOrderDate)) {
         prev.lastOrderDate = order.createdAt;
       }
@@ -817,6 +866,7 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
         name: order.customerName.trim(),
         phone: order.customerPhone || '',
         email: order.customerEmail || '',
+        city: resolvedLocation || '',
         orderGroups: new Set([groupKey]),
         totalSpent: lineTotal,
         lastOrderDate: order.createdAt || '',
@@ -838,7 +888,7 @@ export function buildCustomersFromOrders(orders: Order[], existingCustomers: Cus
       name: entry.name,
       phone: entry.phone || prevCust?.phone || '—',
       email: entry.email || prevCust?.email,
-      city: prevCust?.city,
+      city: entry.city || prevCust?.city,
       totalOrders: orderCount,
       totalSpent: entry.totalSpent,
       type,
@@ -865,19 +915,63 @@ export function buildCombinedInvoiceOrder(targetOrder: Order, allOrders: Order[]
   const combinedItems = matching.flatMap((o) => o.items);
   const totalAmount = round2(combinedItems.reduce((s, it) => s + it.quantity * it.unitPrice, 0));
   const advancePaid = round2(matching.reduce((s, o) => s + (o.advancePaid || 0), 0));
-  const notes = matching
-    .map((o) => o.notes?.trim())
-    .filter(Boolean)
-    .join(' • ');
+  const shipping = matching.find((o) => typeof o.shipping === 'number')?.shipping;
+  const tax = matching.find((o) => typeof o.tax === 'number')?.tax;
+  const invoiceNumber =
+    matching.find((o) => o.invoiceNumber?.trim())?.invoiceNumber || targetOrder.invoiceNumber;
+  const customerPhone =
+    matching.find((o) => o.customerPhone?.trim())?.customerPhone || targetOrder.customerPhone;
+  const customerEmail =
+    matching.find((o) => o.customerEmail?.trim())?.customerEmail || targetOrder.customerEmail;
+  const customerLocation =
+    matching.find((o) => o.customerLocation?.trim())?.customerLocation ||
+    targetOrder.customerLocation;
+  const deliveredDates = matching
+    .map((o) => o.deliveredOn)
+    .filter((d): d is string => Boolean(d))
+    .sort();
+  const targetDates = matching
+    .map((o) => o.targetDeliveryDate)
+    .filter((d): d is string => Boolean(d))
+    .sort();
+  const notes = Array.from(
+    new Set(matching.map((o) => o.notes?.trim()).filter((n): n is string => Boolean(n)))
+  ).join(' • ');
 
   return {
     ...targetOrder,
+    customerPhone,
+    customerEmail,
+    customerLocation,
+    invoiceNumber,
+    shipping,
+    tax,
+    deliveredOn: deliveredDates.at(-1) || targetOrder.deliveredOn,
+    targetDeliveryDate: targetDates.at(-1) || targetOrder.targetDeliveryDate,
     items: combinedItems,
     totalAmount,
     advancePaid,
     balanceDue: round2(totalAmount - advancePaid),
     notes: notes || targetOrder.notes,
   };
+}
+
+/**
+ * Groups multi-line customer orders into unique invoices for the Invoices module.
+ */
+export function buildGroupedInvoices(orders: Order[]): Order[] {
+  const seen = new Set<string>();
+  const grouped: Order[] = [];
+
+  for (const order of orders) {
+    if (order.status === 'Cancelled') continue;
+    const key = `${order.orderNumber.trim().toUpperCase()}__${normalizeNameKey(order.customerName)}__${order.createdAt}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    grouped.push(buildCombinedInvoiceOrder(order, orders));
+  }
+
+  return grouped;
 }
 
 function csvCell(val: string | number | boolean | null | undefined): string {
