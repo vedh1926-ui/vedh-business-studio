@@ -195,9 +195,9 @@ export default function NewOrderModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full border border-[#E8DDCF] shadow-2xl overflow-hidden my-8">
-        <div className="bg-[#FAF5EE] border-b border-[#E8DDCF] px-6 py-4 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-[#E8DDCF] shadow-2xl overflow-hidden">
+        <div className="shrink-0 bg-[#FAF5EE] border-b border-[#E8DDCF] px-5 sm:px-6 py-3.5 flex items-center justify-between">
           <h3 className="font-serif text-lg font-bold text-[#2C181B]">
             {initialOrder ? `Edit Order ${initialOrder.orderNumber}` : 'Create New Order'}
           </h3>
@@ -210,7 +210,8 @@ export default function NewOrderModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col text-xs">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4">
           {/* Order # & Date */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -483,12 +484,13 @@ export default function NewOrderModal({
               Balance Due: {formatINR(balanceDue)}
             </div>
           </div>
+          </div>
 
-          <div className="flex justify-end space-x-3 pt-4 border-t border-[#F2EBE0]">
+          <div className="shrink-0 bg-[#FCFAF7] flex justify-end space-x-3 px-5 sm:px-6 py-3.5 border-t border-[#E8DDCF]">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-[#D9C9B4] rounded-lg text-[#635B5B] hover:bg-[#FAF6F0]"
+              className="px-4 py-2 border border-[#D9C9B4] rounded-lg text-[#635B5B] bg-white hover:bg-[#FAF6F0]"
             >
               Cancel
             </button>

@@ -65,10 +65,10 @@ export default function SupplierDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-4xl w-full border border-[#E8DDCF] shadow-2xl overflow-hidden my-6">
-        {/* Header */}
-        <div className="bg-[#FAF5EE] border-b border-[#E8DDCF] px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col border border-[#E8DDCF] shadow-2xl overflow-hidden">
+        {/* Header (pinned) */}
+        <div className="shrink-0 bg-[#FAF5EE] border-b border-[#E8DDCF] px-5 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="w-11 h-11 rounded-xl bg-white border border-[#E8DDCF] flex items-center justify-center text-[#541523] shrink-0">
               <Truck size={21} />
@@ -145,7 +145,7 @@ export default function SupplierDetailModal({
           </div>
         </div>
 
-        <div className="p-6 space-y-6 text-xs">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 sm:p-6 space-y-5 text-xs">
           {/* Top Metrics Strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="rounded-xl bg-[#FAF6F0] border border-[#E8DDCF] p-3">

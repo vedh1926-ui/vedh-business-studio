@@ -164,12 +164,12 @@ export default function SupplierModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full border border-[#E8DDCF] shadow-2xl overflow-hidden my-6">
-        {/* Header */}
-        <div className="bg-[#FAF5EE] border-b border-[#E8DDCF] px-6 py-4 flex items-center justify-between">
-          <div>
-            <h3 className="font-serif text-lg font-bold text-[#2C181B]">
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-[#E8DDCF] shadow-2xl overflow-hidden">
+        {/* Header (pinned) */}
+        <div className="shrink-0 bg-[#FAF5EE] border-b border-[#E8DDCF] px-5 sm:px-6 py-3.5 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-serif text-lg font-bold text-[#2C181B] truncate">
               {initialSupplier
                 ? `Edit Supplier · ${initialSupplier.name}`
                 : 'Add Material Supplier'}
@@ -181,14 +181,15 @@ export default function SupplierModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-stone-400 hover:text-stone-700 rounded-md"
+            className="shrink-0 p-1 text-stone-400 hover:text-stone-700 rounded-md"
             aria-label="Close supplier modal"
           >
             <X size={18} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5 text-xs">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col text-xs">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4">
           {initialSupplier && (initialSupplier.totalOrders > 0 || initialSupplier.totalPaid > 0) && (
             <div className="rounded-xl bg-[#FAF6F0] border border-[#E8DDCF] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#541523]">
               <span>
@@ -570,12 +571,13 @@ export default function SupplierModal({
               />
             </div>
           </div>
+          </div>
 
-          <div className="flex justify-end space-x-3 pt-4 border-t border-[#F2EBE0]">
+          <div className="shrink-0 bg-[#FCFAF7] flex justify-end space-x-3 px-5 sm:px-6 py-3.5 border-t border-[#E8DDCF]">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-[#D9C9B4] rounded-lg text-[#635B5B] hover:bg-[#FAF6F0]"
+              className="px-4 py-2 border border-[#D9C9B4] rounded-lg text-[#635B5B] bg-white hover:bg-[#FAF6F0]"
             >
               Cancel
             </button>
