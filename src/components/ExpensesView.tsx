@@ -39,16 +39,21 @@ import {
   Image as ImageIcon,
   RotateCcw,
   FolderOpen,
+  PackagePlus,
+  PackageCheck,
 } from 'lucide-react';
+import { InventoryItem } from '@/lib/types';
 
 interface ExpensesViewProps {
   expenses: Expense[];
   platforms?: string[];
   categories?: string[];
   purchaseStatuses?: string[];
+  inventory?: InventoryItem[];
   onOpenNewExpense: () => void;
   onEditExpense: (expense: Expense) => void;
   onCopyExpense?: (expense: Expense) => void;
+  onAddToInventory?: (expense: Expense) => void;
   onDeleteExpense: (id: string) => void;
   onUpdatePurchaseStatus?: (id: string, purchaseStatus: string) => void;
   onAttachPurchaseMedia?: (updates: PurchaseMediaUpdateItem[], summaryMsg?: string) => void;
@@ -63,9 +68,11 @@ export default function ExpensesView({
   platforms = [],
   categories = [],
   purchaseStatuses = [],
+  inventory = [],
   onOpenNewExpense,
   onEditExpense,
   onCopyExpense,
+  onAddToInventory,
   onDeleteExpense,
   onUpdatePurchaseStatus,
   onAttachPurchaseMedia,
@@ -789,20 +796,25 @@ export default function ExpensesView({
                               <span className="text-[10px] text-[#7A6E6E]">{exp.dimensions}</span>
                             )}
                             {exp.stockItem && (
-                              <span
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-[#F5EFE6] text-[#423A3A] border border-[#E8DDCF]"
+                              <button
+                                type="button"
+                                onClick={() => onAddToInventory && onAddToInventory(exp)}
+                                className="inline-flex items-center space-x-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100/80 transition"
                                 title={
                                   exp.appliedToStock
-                                    ? 'Linked to Stock Ledger (adds to Physical In Hand when Delivered)'
-                                    : 'Linked to Stock Ledger (tracks Incoming while Shipped/Ordered)'
+                                    ? `Linked to Stock: ${exp.stockItem} (${exp.stockQtyReceived ?? metrics.totalUnits}u in hand). Click to manage.`
+                                    : `Linked to Stock: ${exp.stockItem} (incoming). Click to manage.`
                                 }
                               >
-                                Stock: {exp.stockItem}
-                                {typeof exp.stockQtyReceived === 'number' &&
-                                exp.stockQtyReceived > 0
-                                  ? ` (${exp.stockQtyReceived}u)`
-                                  : ''}
-                              </span>
+                                <PackageCheck size={11} className="text-emerald-700" />
+                                <span>
+                                  Stock: {exp.stockItem}
+                                  {typeof exp.stockQtyReceived === 'number' &&
+                                  exp.stockQtyReceived > 0
+                                    ? ` (${exp.stockQtyReceived}u)`
+                                    : ` (${metrics.totalUnits}u)`}
+                                </span>
+                              </button>
                             )}
                           </div>
                           {(exp.notes || exp.contactDetails) && (
@@ -961,6 +973,28 @@ export default function ExpensesView({
                             >
                               <Pencil size={14} />
                             </button>
+                            {onAddToInventory && (
+                              <button
+                                onClick={() => onAddToInventory(exp)}
+                                className={`p-1.5 rounded transition ${
+                                  exp.appliedToStock && exp.stockItem
+                                    ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200'
+                                    : 'text-[#541523] hover:text-[#3B0E18] hover:bg-[#F2EBE0]'
+                                }`}
+                                title={
+                                  exp.appliedToStock && exp.stockItem
+                                    ? `In Stock: ${exp.stockItem} (${exp.stockQtyReceived ?? metrics.totalUnits}u). Click to manage.`
+                                    : 'Add purchase item directly to Inventory'
+                                }
+                                aria-label={`Add ${exp.title} to inventory`}
+                              >
+                                {exp.appliedToStock && exp.stockItem ? (
+                                  <PackageCheck size={14} />
+                                ) : (
+                                  <PackagePlus size={14} />
+                                )}
+                              </button>
+                            )}
                             {onCopyExpense && (
                               <button
                                 onClick={() => onCopyExpense(exp)}
@@ -1162,6 +1196,10 @@ export default function ExpensesView({
           onEdit={(exp) => {
             setViewingExpense(null);
             onEditExpense(exp);
+          }}
+          onAddToInventory={(exp) => {
+            setViewingExpense(null);
+            if (onAddToInventory) onAddToInventory(exp);
           }}
           onCopy={(exp) => {
             setViewingExpense(null);

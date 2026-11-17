@@ -43,7 +43,7 @@ export function isOrderOpen(status: string): boolean {
   return OPEN_ORDER_STATUSES.includes(status);
 }
 
-function resolvePurchaseUnits(exp: Expense): number {
+export function resolvePurchaseUnits(exp: Expense): number {
   if (typeof exp.stockQtyReceived === 'number' && !Number.isNaN(exp.stockQtyReceived) && exp.stockQtyReceived > 0) {
     return round2(exp.stockQtyReceived);
   }

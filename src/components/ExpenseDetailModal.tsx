@@ -24,6 +24,8 @@ import {
   Tag,
   Hash,
   Copy,
+  PackagePlus,
+  PackageCheck,
 } from 'lucide-react';
 
 interface ExpenseDetailModalProps {
@@ -33,6 +35,7 @@ interface ExpenseDetailModalProps {
   onEdit: (expense: Expense) => void;
   onDelete: (id: string) => void;
   onCopy?: (expense: Expense) => void;
+  onAddToInventory?: (expense: Expense) => void;
   onSelectSiblingExpense?: (expense: Expense) => void;
   onPreviewBill?: (expense: Expense) => void;
   onPreviewImage?: (expense: Expense) => void;
@@ -45,6 +48,7 @@ export default function ExpenseDetailModal({
   onEdit,
   onDelete,
   onCopy,
+  onAddToInventory,
   onSelectSiblingExpense,
   onPreviewBill,
   onPreviewImage,
@@ -122,6 +126,28 @@ export default function ExpenseDetailModal({
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
+            {onAddToInventory && (
+              <button
+                onClick={() => onAddToInventory(expense)}
+                className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-sm transition ${
+                  expense.appliedToStock && expense.stockItem
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100/60'
+                    : 'border-[#D9C9B4] bg-white hover:bg-[#FAF6F0] text-[#541523]'
+                }`}
+                title={
+                  expense.appliedToStock && expense.stockItem
+                    ? `Linked to Inventory: ${expense.stockItem}. Click to manage.`
+                    : 'Add item with quantity directly into Inventory'
+                }
+              >
+                {expense.appliedToStock && expense.stockItem ? (
+                  <PackageCheck size={13} className="text-emerald-700" />
+                ) : (
+                  <PackagePlus size={13} />
+                )}
+                <span>{expense.appliedToStock && expense.stockItem ? 'In Stock' : 'Add to Stock'}</span>
+              </button>
+            )}
             {onCopy && (
               <button
                 onClick={() => onCopy(expense)}
@@ -238,19 +264,53 @@ export default function ExpenseDetailModal({
                   </div>
                 </div>
 
-                {expense.stockItem && (
-                  <div className="bg-[#FAF6F0] border border-[#E8DDCF] rounded-lg p-2.5 mt-2">
-                    <div className="text-[10px] font-semibold text-[#541523] flex items-center space-x-1">
-                      <Layers size={12} />
-                      <span>Stock Ledger Link</span>
+                {expense.stockItem ? (
+                  <div className="bg-[#FAF6F0] border border-[#E8DDCF] rounded-lg p-2.5 mt-2 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-semibold text-[#541523] flex items-center space-x-1">
+                        <PackageCheck size={13} className="text-emerald-700" />
+                        <span>Stock Ledger Link</span>
+                      </div>
+                      <div className="font-medium text-[#2C181B] mt-1">{expense.stockItem}</div>
+                      <div className="text-[10px] text-[#7A6E6E] mt-0.5">
+                        {expense.appliedToStock
+                          ? `Received: ${expense.stockQtyReceived ?? metrics.totalUnits} units (counted in Physical In Hand)`
+                          : `Incoming tracker: ${metrics.totalUnits} units pending arrival`}
+                      </div>
                     </div>
-                    <div className="font-medium text-[#2C181B] mt-1">{expense.stockItem}</div>
-                    <div className="text-[10px] text-[#7A6E6E] mt-0.5">
-                      {expense.appliedToStock
-                        ? `Received: ${expense.stockQtyReceived ?? metrics.totalUnits} units (counted in Physical In Hand)`
-                        : `Incoming tracker: ${metrics.totalUnits} units pending arrival`}
-                    </div>
+                    {onAddToInventory && (
+                      <button
+                        type="button"
+                        onClick={() => onAddToInventory(expense)}
+                        className="px-2.5 py-1 rounded-md bg-white border border-[#D9C9B4] text-[11px] font-semibold text-[#541523] hover:bg-[#FAF6F0] transition shrink-0 ml-2 shadow-xs"
+                        title="Manage Inventory link or stock quantity"
+                      >
+                        Manage Stock
+                      </button>
+                    )}
                   </div>
+                ) : (
+                  onAddToInventory && (
+                    <div className="bg-[#FAF6F0]/60 border border-dashed border-[#D9C9B4] rounded-lg p-2.5 mt-2 flex items-center justify-between">
+                      <div>
+                        <div className="text-[11px] font-semibold text-[#2C181B]">
+                          Not yet added to Inventory
+                        </div>
+                        <div className="text-[10px] text-[#7A6E6E]">
+                          Directly add {metrics.totalUnits} units into workshop stock
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onAddToInventory(expense)}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-[#541523] text-white text-[11px] font-semibold hover:bg-[#6E1C30] transition shrink-0 shadow-sm ml-2"
+                        title="Add this item with quantity into Inventory"
+                      >
+                        <PackagePlus size={12} />
+                        <span>Add to Stock</span>
+                      </button>
+                    </div>
+                  )
                 )}
               </div>
             </div>
@@ -553,6 +613,27 @@ export default function ExpenseDetailModal({
           </div>
 
           <div className="flex items-center space-x-2">
+            {onAddToInventory && (
+              <button
+                type="button"
+                onClick={() => onAddToInventory(expense)}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg border border-[#D9C9B4] bg-white hover:bg-[#FAF6F0] text-[#541523] text-xs font-semibold transition"
+                title={
+                  expense.appliedToStock && expense.stockItem
+                    ? 'Manage Inventory stock link'
+                    : 'Add purchase item directly into Inventory'
+                }
+              >
+                {expense.appliedToStock && expense.stockItem ? (
+                  <PackageCheck size={14} className="text-emerald-700" />
+                ) : (
+                  <PackagePlus size={14} />
+                )}
+                <span>
+                  {expense.appliedToStock && expense.stockItem ? 'Manage Stock' : 'Add to Inventory'}
+                </span>
+              </button>
+            )}
             {onCopy && (
               <button
                 onClick={() => onCopy(expense)}

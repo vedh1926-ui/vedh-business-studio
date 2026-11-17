@@ -479,19 +479,9 @@ export function compareExpensesByOrderDesc(a: Expense, b: Expense): number {
       return parsedB.number - parsedA.number; // Highest to lowest
     }
   } else if (parsedA.number !== null && parsedB.number === null) {
-    // a has an order number, b is ecommerce or missing
-    const dateA = a.date || '';
-    const dateB = b.date || '';
-    if (dateA && dateB && dateB > dateA) {
-      return 1; // b is newer by calendar date
-    }
-    return -1; // a comes first
+    // a has a sequential order number, b is ecommerce or missing -> sequential orders always come first
+    return -1;
   } else if (parsedA.number === null && parsedB.number !== null) {
-    const dateA = a.date || '';
-    const dateB = b.date || '';
-    if (dateA && dateB && dateA > dateB) {
-      return -1; // a is newer by calendar date
-    }
     return 1;
   }
 

@@ -27,6 +27,7 @@ import OrderEnquiryCheckerModal from '@/components/OrderEnquiryCheckerModal';
 import CustomerModal, { CustomerFormPayload } from '@/components/CustomerModal';
 import SupplierModal, { SupplierFormPayload } from '@/components/SupplierModal';
 import SupplierDetailModal from '@/components/SupplierDetailModal';
+import AddToInventoryModal, { LinkExpenseToInventoryPayload } from '@/components/AddToInventoryModal';
 
 import {
   ActiveTab,
@@ -64,9 +65,13 @@ import {
   getLocalTodayYmd,
   isOrderOpen,
   normalizeNameKey,
+  resolvePurchaseUnits,
 } from '@/lib/oprFormulas';
 import { round2 } from '@/lib/utils';
-import { getNextPurchaseOrderNumber } from '@/lib/purchaseFormulas';
+import {
+  computePurchaseRowMetrics,
+  getNextPurchaseOrderNumber,
+} from '@/lib/purchaseFormulas';
 import {
   luxuryDecoOrder14290Expenses,
   luxuryDecoOrder14507Expenses,
@@ -122,6 +127,7 @@ export default function Home() {
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [isCopyingExpense, setIsCopyingExpense] = useState(false);
+  const [inventoryLinkingExpense, setInventoryLinkingExpense] = useState<Expense | null>(null);
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [prefillOrderCustomer, setPrefillOrderCustomer] = useState<Customer | null>(null);
@@ -1262,6 +1268,148 @@ export default function Home() {
     showToast('Reloaded default Purchase Sheet');
   };
 
+  // Link / Add Expense item to Inventory
+  const handleLinkExpenseToInventory = (payload: LinkExpenseToInventoryPayload) => {
+    const expense = expenses.find((e) => e.id === payload.expenseId);
+    if (!expense) return;
+
+    const m = computePurchaseRowMetrics(expense);
+    const costPerUnit =
+      m.costPerUnit ||
+      (payload.quantityToAdd > 0 ? round2(expense.amount / payload.quantityToAdd) : 0);
+
+    let targetMaterialName = '';
+    let updatedInventory = [...inventory];
+
+    if (payload.mode === 'new' && payload.newItemData) {
+      const rawName = payload.newItemData.name.trim();
+      if (!rawName) return;
+      targetMaterialName = rawName;
+
+      const newInvItem: InventoryItem = {
+        id: `inv-${Date.now()}`,
+        name: rawName,
+        type: payload.newItemData.type,
+        category: payload.newItemData.category,
+        openingStock: 0,
+        stock: payload.quantityToAdd,
+        unit: payload.newItemData.unit,
+        reorderLevel: payload.newItemData.reorderLevel,
+        avgUnitCost: costPerUnit,
+        supplier: payload.newItemData.supplier || expense.supplierName || expense.platform,
+        purchaseSource: `Created from purchase: ${
+          expense.orderId ? `${expense.orderId} · ` : ''
+        }${expense.title}`,
+        status: (payload.quantityToAdd <= payload.newItemData.reorderLevel ? 'Low' : 'Healthy') as InventoryItem['status'],
+      };
+
+      updatedInventory = [newInvItem, ...updatedInventory];
+      setInventory(updatedInventory);
+      persist('vedh_inventory', updatedInventory);
+    } else if (payload.mode === 'existing' && payload.targetInventoryId) {
+      const existingIndex = updatedInventory.findIndex((i) => i.id === payload.targetInventoryId);
+      if (existingIndex === -1) return;
+      const existingItem = updatedInventory[existingIndex];
+      targetMaterialName = existingItem.name;
+
+      const oldUnits = existingItem.stock || 0;
+      const oldCost = existingItem.avgUnitCost || 0;
+      const newUnits = payload.quantityToAdd;
+      const blendedCost =
+        oldUnits + newUnits > 0
+          ? round2((oldUnits * oldCost + newUnits * costPerUnit) / (oldUnits + newUnits))
+          : costPerUnit;
+
+      const nextStock = round2(oldUnits + newUnits);
+      const updatedItem: InventoryItem = {
+        ...existingItem,
+        openingStock:
+          existingItem.openingStock !== undefined && existingItem.openingStock !== null
+            ? existingItem.openingStock
+            : existingItem.stock,
+        stock: nextStock,
+        avgUnitCost: blendedCost > 0 ? blendedCost : existingItem.avgUnitCost,
+        supplier: existingItem.supplier || expense.supplierName || expense.platform,
+        status: (nextStock <= 0 ? 'Critical' : nextStock <= existingItem.reorderLevel ? 'Low' : 'Healthy') as InventoryItem['status'],
+      };
+
+      updatedInventory[existingIndex] = updatedItem;
+      setInventory(updatedInventory);
+      persist('vedh_inventory', updatedInventory);
+    }
+
+    // Update the Expense record
+    const shouldMarkDelivered = Boolean(
+      payload.markDelivered && expense.purchaseStatus !== 'Delivered'
+    );
+    const nextPurchaseStatus = shouldMarkDelivered
+      ? 'Delivered'
+      : expense.purchaseStatus || 'Delivered';
+    const nextActualDelivery = shouldMarkDelivered
+      ? expense.actualDelivery || getLocalTodayYmd()
+      : expense.actualDelivery;
+
+    const updatedExpense: Expense = {
+      ...expense,
+      stockItem: targetMaterialName,
+      stockQtyReceived: payload.quantityToAdd,
+      appliedToStock: true,
+      purchaseStatus: nextPurchaseStatus,
+      actualDelivery: nextActualDelivery,
+    };
+
+    const nextExpenses = expenses.map((e) => (e.id === expense.id ? updatedExpense : e));
+    setExpenses(nextExpenses);
+    persist('vedh_expenses', nextExpenses);
+
+    const logMsg = `Added ${payload.quantityToAdd} units of "${targetMaterialName}" to Inventory from Purchase ${
+      expense.orderId ? `(${expense.orderId})` : ''
+    } "${expense.title}"`;
+    addLog('Inventory', logMsg);
+    showToast(`Added ${payload.quantityToAdd} units of "${targetMaterialName}" to Inventory!`);
+    setInventoryLinkingExpense(null);
+  };
+
+  const handleUnlinkExpenseFromInventory = (expenseId: string, deductStock: boolean) => {
+    const expense = expenses.find((e) => e.id === expenseId);
+    if (!expense || !expense.stockItem) return;
+
+    const linkedName = expense.stockItem;
+    const qtyToDeduct = expense.stockQtyReceived ?? resolvePurchaseUnits(expense);
+
+    if (deductStock) {
+      const nextInv = inventory.map((item) => {
+        if (normalizeNameKey(item.name) !== normalizeNameKey(linkedName)) return item;
+        const nextStock = Math.max(0, round2(item.stock - qtyToDeduct));
+        return {
+          ...item,
+          stock: nextStock,
+          status: (nextStock <= 0 ? 'Critical' : nextStock <= item.reorderLevel ? 'Low' : 'Healthy') as InventoryItem['status'],
+        };
+      });
+      setInventory(nextInv);
+      persist('vedh_inventory', nextInv);
+    }
+
+    const updatedExpense: Expense = {
+      ...expense,
+      stockItem: undefined,
+      stockQtyReceived: undefined,
+      appliedToStock: false,
+    };
+
+    const nextExpenses = expenses.map((e) => (e.id === expense.id ? updatedExpense : e));
+    setExpenses(nextExpenses);
+    persist('vedh_expenses', nextExpenses);
+
+    const logMsg = `Unlinked Purchase "${expense.title}" from Inventory material "${linkedName}"${
+      deductStock ? ` (-${qtyToDeduct} units)` : ''
+    }`;
+    addLog('Inventory', logMsg);
+    showToast(`Unlinked "${expense.title}" from Inventory`);
+    setInventoryLinkingExpense(null);
+  };
+
   // Master Lists CRUD Handlers
   const handleAddMasterItem = (groupId: string, label: string) => {
     const trimmed = label.trim();
@@ -1787,6 +1935,7 @@ export default function Home() {
           {activeTab === 'expenses' && (
             <ExpensesView
               expenses={expenses}
+              inventory={inventory}
               platforms={getActiveOptions('platform')}
               categories={getActiveOptions('category')}
               purchaseStatuses={getActiveOptions('purchase_status')}
@@ -1804,6 +1953,9 @@ export default function Home() {
                 setEditingExpense(expense);
                 setIsCopyingExpense(true);
                 setIsNewExpenseOpen(true);
+              }}
+              onAddToInventory={(expense) => {
+                setInventoryLinkingExpense(expense);
               }}
               onDeleteExpense={handleDeleteExpense}
               onUpdatePurchaseStatus={handleUpdateExpenseStatus}
@@ -2026,6 +2178,22 @@ export default function Home() {
             setPrefillExpenseSupplier(null);
           }}
           onSave={handleSaveExpense}
+        />
+      )}
+
+      {inventoryLinkingExpense && (
+        <AddToInventoryModal
+          expense={inventoryLinkingExpense}
+          inventory={inventory}
+          categories={getActiveOptions('category')}
+          units={getActiveOptions('unit')}
+          onClose={() => setInventoryLinkingExpense(null)}
+          onLink={handleLinkExpenseToInventory}
+          onUnlink={handleUnlinkExpenseFromInventory}
+          onNavigateToInventory={() => {
+            setInventoryLinkingExpense(null);
+            setActiveTab('inventory');
+          }}
         />
       )}
 
