@@ -159,6 +159,12 @@ export default function AddToInventoryModal({
   );
   const [existingSearch, setExistingSearch] = useState('');
 
+  // Ensure expense category is in the options list
+  const allCategoryOptions = useMemo(() => {
+    const list = [expense.category, ...categories].filter(Boolean);
+    return Array.from(new Set(list));
+  }, [expense.category, categories]);
+
   // New item form state
   const [newName, setNewName] = useState(
     (expense.stockItem || expense.title || '').trim()
@@ -167,10 +173,7 @@ export default function AddToInventoryModal({
     inferInventoryType(expense.category, expense.title)
   );
   const [newCategory, setNewCategory] = useState<string>(() => {
-    if (expense.category && categories.includes(expense.category)) {
-      return expense.category;
-    }
-    return categories[0] || 'Packaging';
+    return expense.category || categories[0] || 'Packaging';
   });
   const [newUnit, setNewUnit] = useState<string>(() =>
     inferUnitOfMeasure(expense.dimensions, expense.title, units)
@@ -179,6 +182,9 @@ export default function AddToInventoryModal({
   const [newSupplier, setNewSupplier] = useState(
     expense.supplierName || expense.platform || ''
   );
+
+  // Existing selection category filter
+  const [existingCategoryFilter, setExistingCategoryFilter] = useState<string>('all');
 
   // Quantity to add
   const [quantityToAddStr, setQuantityToAddStr] = useState<string>(
@@ -193,22 +199,44 @@ export default function AddToInventoryModal({
   const [isConfirmingUnlink, setIsConfirmingUnlink] = useState(false);
   const [deductOnUnlink, setDeductOnUnlink] = useState(true);
 
+  // Filtered inventory list for existing picker, prioritizing items with same category
+  const filteredInventoryOptions = useMemo(() => {
+    let list = inventory;
+    if (existingCategoryFilter !== 'all') {
+      list = list.filter(
+        (item) => (item.category || '').toLowerCase() === existingCategoryFilter.toLowerCase()
+      );
+    }
+    if (existingSearch.trim()) {
+      const q = existingSearch.toLowerCase().trim();
+      list = list.filter(
+        (item) =>
+          item.name.toLowerCase().includes(q) ||
+          (item.category || '').toLowerCase().includes(q) ||
+          item.type.toLowerCase().includes(q)
+      );
+    }
+    // Sort so items matching expense.category come first, then alphabetical by name
+    return [...list].sort((a, b) => {
+      const matchA =
+        (a.category || '').toLowerCase() === (expense.category || '').toLowerCase();
+      const matchB =
+        (b.category || '').toLowerCase() === (expense.category || '').toLowerCase();
+      if (matchA && !matchB) return -1;
+      if (!matchA && matchB) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [inventory, existingSearch, existingCategoryFilter, expense.category]);
+
   // Selected item reference for 'existing' mode
   const selectedItem = useMemo(() => {
-    return inventory.find((i) => i.id === selectedInventoryId) || inventory[0] || null;
-  }, [inventory, selectedInventoryId]);
-
-  // Filtered inventory list for existing picker
-  const filteredInventoryOptions = useMemo(() => {
-    if (!existingSearch.trim()) return inventory;
-    const q = existingSearch.toLowerCase().trim();
-    return inventory.filter(
-      (item) =>
-        item.name.toLowerCase().includes(q) ||
-        (item.category || '').toLowerCase().includes(q) ||
-        item.type.toLowerCase().includes(q)
+    return (
+      inventory.find((i) => i.id === selectedInventoryId) ||
+      filteredInventoryOptions[0] ||
+      inventory[0] ||
+      null
     );
-  }, [inventory, existingSearch]);
+  }, [inventory, selectedInventoryId, filteredInventoryOptions]);
 
   const quantityToAdd = parseFloat(quantityToAddStr) || 0;
 
@@ -498,6 +526,34 @@ export default function AddToInventoryModal({
                     Select Existing Material in Stock *
                   </label>
                   <div className="space-y-1.5">
+                    {/* Category Filter Pills for Existing Items */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setExistingCategoryFilter('all')}
+                        className={`px-2 py-0.5 rounded-full border transition whitespace-nowrap ${
+                          existingCategoryFilter === 'all'
+                            ? 'bg-[#541523] text-white border-[#541523]'
+                            : 'bg-white text-[#635B5B] border-[#D9C9B4] hover:bg-[#FAF6F0]'
+                        }`}
+                      >
+                        All Categories ({inventory.length})
+                      </button>
+                      {expense.category && (
+                        <button
+                          type="button"
+                          onClick={() => setExistingCategoryFilter(expense.category)}
+                          className={`px-2 py-0.5 rounded-full border transition font-medium whitespace-nowrap ${
+                            existingCategoryFilter.toLowerCase() === expense.category.toLowerCase()
+                              ? 'bg-[#541523] text-white border-[#541523]'
+                              : 'bg-[#FAF0E6] text-[#8F243C] border-[#E8DDCF] hover:bg-[#F2E5D5]'
+                          }`}
+                        >
+                          Matching Category: {expense.category}
+                        </button>
+                      )}
+                    </div>
+
                     <input
                       type="text"
                       placeholder="Search materials (e.g. Soy Wax, Box, Ribbon)..."
@@ -514,12 +570,12 @@ export default function AddToInventoryModal({
                     >
                       {filteredInventoryOptions.length === 0 ? (
                         <option value="" disabled>
-                          No matching materials found
+                          No matching materials found in this category
                         </option>
                       ) : (
                         filteredInventoryOptions.map((item) => (
                           <option key={item.id} value={item.id}>
-                            {item.name} — Current: {item.stock} {item.unit} ({item.type})
+                            {item.name} [{item.category || item.type}] — Current: {item.stock} {item.unit}
                           </option>
                         ))
                       )}
@@ -604,10 +660,14 @@ export default function AddToInventoryModal({
                     </label>
                     <select
                       value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value)}
+                      onChange={(e) => {
+                        const nextCat = e.target.value;
+                        setNewCategory(nextCat);
+                        setNewType(inferInventoryType(nextCat, newName));
+                      }}
                       className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] bg-white focus:outline-none focus:ring-1 focus:ring-[#541523]"
                     >
-                      {categories.map((cat) => (
+                      {allCategoryOptions.map((cat) => (
                         <option key={cat} value={cat}>
                           {cat}
                         </option>

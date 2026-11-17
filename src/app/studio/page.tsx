@@ -124,6 +124,7 @@ export default function Home() {
   const [isNewProductOpen, setIsNewProductOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isNewStockOpen, setIsNewStockOpen] = useState(false);
+  const [editingStockItem, setEditingStockItem] = useState<InventoryItem | null>(null);
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [isCopyingExpense, setIsCopyingExpense] = useState(false);
@@ -605,8 +606,26 @@ export default function Home() {
   // Active option lookup helper from Master Lists
   const getActiveOptions = (key: string): string[] => {
     const group = masterLists.find((g) => g.key === key);
-    if (!group) return [];
-    return group.items.filter((i) => i.isActive).map((i) => i.label);
+    const configured = group ? group.items.filter((i) => i.isActive).map((i) => i.label) : [];
+
+    if (key === 'category') {
+      const set = new Set<string>(configured);
+      const initGroup = initialMasterLists.find((g) => g.key === 'category');
+      if (initGroup) {
+        for (const item of initGroup.items) {
+          set.add(item.label);
+        }
+      }
+      for (const e of expenses) {
+        if (e.category && e.category.trim()) set.add(e.category.trim());
+      }
+      for (const i of inventory) {
+        if (i.category && i.category.trim()) set.add(i.category.trim());
+      }
+      return Array.from(set);
+    }
+
+    return configured;
   };
 
   // Add history log helper
@@ -1038,7 +1057,7 @@ export default function Home() {
 
   const handleUpdateInventoryMaterial = (
     materialId: string,
-    updates: { stock?: number; avgUnitCost?: number; openingStock?: number | null }
+    updates: Partial<InventoryItem>
   ) => {
     const updated = inventory.map((item) => {
       if (item.id !== materialId) return item;
@@ -1050,14 +1069,15 @@ export default function Home() {
           : 'openingStock' in updates
           ? Math.max(0, nextOpeningStock ?? 0)
           : item.stock;
+      const nextReorder =
+        updates.reorderLevel !== undefined ? updates.reorderLevel : item.reorderLevel;
       const nextStatus: InventoryItem['status'] =
-        nextStock <= 0 ? 'Critical' : nextStock <= item.reorderLevel ? 'Low' : 'Healthy';
+        nextStock <= 0 ? 'Critical' : nextStock <= nextReorder ? 'Low' : 'Healthy';
       return {
         ...item,
+        ...updates,
         openingStock: nextOpeningStock,
         stock: nextStock,
-        avgUnitCost:
-          'avgUnitCost' in updates ? updates.avgUnitCost : item.avgUnitCost,
         status: nextStatus,
       };
     });
@@ -1071,18 +1091,64 @@ export default function Home() {
   };
 
   // Inventory Handlers
-  const handleSaveStock = (stockData: Omit<InventoryItem, 'id' | 'status'>) => {
-    const status = stockData.stock <= stockData.reorderLevel ? 'Low' : 'Healthy';
-    const newItem: InventoryItem = {
-      ...stockData,
-      openingStock: stockData.openingStock !== undefined ? stockData.openingStock : stockData.stock,
-      id: `inv-${Date.now()}`,
-      status,
-    };
-    const updated = [newItem, ...inventory];
+  const handleSaveStock = (
+    stockData: Omit<InventoryItem, 'id' | 'status'>,
+    existingId?: string
+  ) => {
+    const nextStock = Math.max(0, stockData.stock ?? 0);
+    const nextReorder = stockData.reorderLevel ?? 5;
+    const status: InventoryItem['status'] =
+      nextStock <= 0 ? 'Critical' : nextStock <= nextReorder ? 'Low' : 'Healthy';
+
+    if (existingId) {
+      const updated = inventory.map((item) =>
+        item.id === existingId
+          ? {
+              ...item,
+              ...stockData,
+              stock: nextStock,
+              status,
+              openingStock:
+                stockData.openingStock !== undefined ? stockData.openingStock : item.openingStock,
+            }
+          : item
+      );
+      setInventory(updated);
+      persist('vedh_inventory', updated);
+      addLog(
+        'Inventory',
+        `Updated stock material: ${stockData.name} [${stockData.category || 'General'}]`
+      );
+      showToast(`Updated ${stockData.name}`);
+    } else {
+      const newItem: InventoryItem = {
+        ...stockData,
+        stock: nextStock,
+        openingStock:
+          stockData.openingStock !== undefined ? stockData.openingStock : nextStock,
+        id: `inv-${Date.now()}`,
+        status,
+      };
+      const updated = [newItem, ...inventory];
+      setInventory(updated);
+      persist('vedh_inventory', updated);
+      addLog(
+        'Inventory',
+        `Stock registered: ${newItem.name} (${newItem.stock} ${newItem.unit}) in [${newItem.category || 'General'}]`
+      );
+      showToast(`Added ${newItem.name} to Inventory`);
+    }
+    setEditingStockItem(null);
+  };
+
+  const handleDeleteInventoryMaterial = (materialId: string) => {
+    const target = inventory.find((i) => i.id === materialId);
+    if (!target) return;
+    const updated = inventory.filter((i) => i.id !== materialId);
     setInventory(updated);
     persist('vedh_inventory', updated);
-    addLog('Product', `Stock registered: ${newItem.name} (${newItem.stock} ${newItem.unit})`);
+    addLog('Inventory', `Deleted material from inventory: ${target.name}`);
+    showToast(`Deleted ${target.name} from Inventory`);
   };
 
   const handleAddAdjustment = (payload: Omit<StockAdjustment, 'id'>) => {
@@ -1764,7 +1830,10 @@ export default function Home() {
       setEditingProduct(null);
       setIsNewProductOpen(true);
     }
-    if (type === 'stock') setIsNewStockOpen(true);
+    if (type === 'stock') {
+      setEditingStockItem(null);
+      setIsNewStockOpen(true);
+    }
     if (type === 'recipe') setActiveTab('recipe');
     if (type === 'expense') {
       setEditingExpense(null);
@@ -1829,7 +1898,10 @@ export default function Home() {
                 setPrefillOrderCustomer(null);
                 setIsNewOrderOpen(true);
               }}
-              onOpenNewStock={() => setIsNewStockOpen(true)}
+              onOpenNewStock={() => {
+                setEditingStockItem(null);
+                setIsNewStockOpen(true);
+              }}
               onOpenNewExpense={() => {
                 setEditingExpense(null);
                 setIsNewExpenseOpen(true);
@@ -1915,8 +1987,17 @@ export default function Home() {
               orders={orders}
               expenses={expenses}
               adjustments={adjustments}
+              categories={getActiveOptions('category')}
               adjustmentReasons={getActiveOptions('adjustment_reason')}
-              onOpenNewStock={() => setIsNewStockOpen(true)}
+              onOpenNewStock={() => {
+                setEditingStockItem(null);
+                setIsNewStockOpen(true);
+              }}
+              onEditStock={(item) => {
+                setEditingStockItem(item);
+                setIsNewStockOpen(true);
+              }}
+              onDeleteInventoryMaterial={handleDeleteInventoryMaterial}
               onAdjustStock={handleAdjustStock}
               onUpdateInventoryMaterial={handleUpdateInventoryMaterial}
               onAddAdjustment={handleAddAdjustment}
@@ -2121,9 +2202,14 @@ export default function Home() {
 
       {isNewStockOpen && (
         <NewStockModal
+          key={editingStockItem?.id ?? 'new-stock'}
+          initialItem={editingStockItem}
           categories={getActiveOptions('category')}
           units={getActiveOptions('unit')}
-          onClose={() => setIsNewStockOpen(false)}
+          onClose={() => {
+            setIsNewStockOpen(false);
+            setEditingStockItem(null);
+          }}
           onSave={handleSaveStock}
         />
       )}
