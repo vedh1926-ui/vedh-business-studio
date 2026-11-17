@@ -3,9 +3,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Expense, Supplier } from '@/lib/types';
 import { round2, formatINR } from '@/lib/utils';
-import { diffCalendarDays } from '@/lib/purchaseFormulas';
+import { diffCalendarDays, getNextPurchaseOrderNumber } from '@/lib/purchaseFormulas';
 import { getPurchaseMedia, savePurchaseMedia } from '@/lib/purchaseMediaStore';
-import { X, Calculator, FileText, Image as ImageIcon, Upload, Trash2 } from 'lucide-react';
+import { X, Calculator, FileText, Image as ImageIcon, Upload, Trash2, Hash } from 'lucide-react';
 
 interface NewExpenseModalProps {
   initialExpense?: Expense | null;
@@ -15,6 +15,7 @@ interface NewExpenseModalProps {
   paymentModes?: string[];
   purchaseStatuses?: string[];
   stockItemOptions?: string[];
+  expenses?: Expense[];
   onClose: () => void;
   onSave: (
     expense: Omit<Expense, 'id'>,
@@ -53,6 +54,7 @@ export default function NewExpenseModal({
     'Cancelled',
   ],
   stockItemOptions = [],
+  expenses = [],
   onClose,
   onSave,
 }: NewExpenseModalProps) {
@@ -68,11 +70,18 @@ export default function NewExpenseModal({
       (prefillSupplier.vendorType === 'Wholesale Market' ? 'Local market' : platforms[0])
     : platforms[0] || 'Amazon';
 
-  const [title, setTitle] = useState(initialExpense?.title || '');
-  const [date, setDate] = useState(initialExpense?.date || today);
-  const [orderId, setOrderId] = useState(initialExpense?.orderId || '');
   const [platform, setPlatform] = useState(
     initialExpense?.platform || matchedPlatform || 'Amazon'
+  );
+
+  const suggestedOrderId = useMemo(() => {
+    return getNextPurchaseOrderNumber(expenses, platform);
+  }, [expenses, platform]);
+
+  const [title, setTitle] = useState(initialExpense?.title || '');
+  const [date, setDate] = useState(initialExpense?.date || today);
+  const [orderId, setOrderId] = useState(
+    initialExpense?.orderId ?? (!isEditing ? suggestedOrderId : '')
   );
   const [dimensions, setDimensions] = useState(initialExpense?.dimensions || '');
   const [category, setCategory] = useState<string>(
@@ -286,15 +295,16 @@ export default function NewExpenseModal({
       }
 
       const trimmedOrderId = orderId.trim();
+      const finalOrderId = trimmedOrderId || (!isEditing ? suggestedOrderId : undefined);
       const shouldLinkOrder = Boolean(
         linkBillToOrder &&
-          trimmedOrderId &&
+          finalOrderId &&
           (nextReceiptFile || nextReceiptUrl || nextReceiptMediaId)
       );
 
       onSave(
         {
-          orderId: trimmedOrderId || undefined,
+          orderId: finalOrderId || undefined,
           platform: platform.trim(),
           category,
           title: title.trim(),
@@ -620,16 +630,34 @@ export default function NewExpenseModal({
           {/* Row 5: Order ID, Invoice, Supplier / Shop */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#F2EBE0]">
             <div>
-              <label className="block text-[#423A3A] font-semibold mb-1">
-                Order ID / Ref
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[#423A3A] font-semibold">
+                  Order ID / Order Ref *
+                </label>
+                {suggestedOrderId && (
+                  <button
+                    type="button"
+                    onClick={() => setOrderId(suggestedOrderId)}
+                    className="text-[10px] text-[#8F243C] hover:underline font-semibold flex items-center gap-0.5"
+                    title="Insert next sequential order number"
+                  >
+                    <Hash size={10} />
+                    <span>Next: {suggestedOrderId}</span>
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
-                placeholder="Order Number: 406-..."
+                placeholder={suggestedOrderId || "Order Number: 406-..."}
                 value={orderId}
                 onChange={(e) => setOrderId(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
               />
+              <p className="text-[10px] text-[#7A6E6E] mt-0.5">
+                {!isEditing && !orderId.trim()
+                  ? `Defaults to next sequential number (${suggestedOrderId}) if left blank`
+                  : 'Auto-generated next order number or paste custom vendor ref'}
+              </p>
             </div>
 
             <div>

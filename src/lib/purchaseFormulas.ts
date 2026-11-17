@@ -370,3 +370,142 @@ export function exportPurchasesToCsv(expenses: Expense[]): string {
 
   return lines.join('\n');
 }
+
+export interface ParsedExpenseOrder {
+  number: number | null;
+  isEcommerce: boolean;
+  isPlatformInvoice: boolean;
+  raw: string;
+}
+
+/**
+ * Extracts numeric sequence component and classifies order ID:
+ * - Amazon (406-...), Meesho (10+ digits), AWB -> isEcommerce: true, number: null
+ * - Vendor specific invoice formats (e.g. Just Kraft JK2627 - 21826) -> isPlatformInvoice: true
+ * - Sequential orders (Order #14902, Order #14901, Order Number 14507, ORD-8590, 14902) -> number: numeric value
+ */
+export function parseExpenseOrderNumber(orderId?: string): ParsedExpenseOrder {
+  if (!orderId || !orderId.trim()) {
+    return { number: null, isEcommerce: false, isPlatformInvoice: false, raw: '' };
+  }
+  const clean = orderId.trim();
+
+  // 1. Amazon order pattern: 406-5934114-4928314
+  if (/\b\d{3}-\d{7}-\d{7}\b/.test(clean)) {
+    return { number: null, isEcommerce: true, isPlatformInvoice: false, raw: clean };
+  }
+
+  // 2. High-digit ecommerce tracking (Meesho, AWB, etc.): 10 or more consecutive digits
+  if (/\b\d{10,}\b/.test(clean)) {
+    return { number: null, isEcommerce: true, isPlatformInvoice: false, raw: clean };
+  }
+
+  // 3. Just Kraft order pattern: JK2627 - 21826 -> vendor platform invoice
+  const jkMatch = clean.match(/JK\d*\s*-\s*(\d+)/i);
+  if (jkMatch) {
+    return {
+      number: parseInt(jkMatch[1], 10),
+      isEcommerce: false,
+      isPlatformInvoice: true,
+      raw: clean,
+    };
+  }
+
+  // 4. Standard sequential pattern: "Order #14901", "Order Number 14507", "#14901", "ORD-8590", "Order-10"
+  const seqMatch = clean.match(/(?:#|Number\s*[:]?\s*|Order\s*[-]?\s*|ORD-)\s*(\d{1,6})\b/i);
+  if (seqMatch) {
+    return { number: parseInt(seqMatch[1], 10), isEcommerce: false, isPlatformInvoice: false, raw: clean };
+  }
+
+  // 5. Standalone 1-6 digits (e.g. "14901", "#14902")
+  const numMatch = clean.match(/\b(\d{1,6})\b/);
+  if (numMatch) {
+    return { number: parseInt(numMatch[1], 10), isEcommerce: false, isPlatformInvoice: false, raw: clean };
+  }
+
+  return { number: null, isEcommerce: false, isPlatformInvoice: false, raw: clean };
+}
+
+/**
+ * Calculates the next sequential order number based on existing expenses:
+ * e.g. If peak standard order number is 14902, next is "Order #14903".
+ */
+export function getNextPurchaseOrderNumber(expenses: Expense[], platform?: string): string {
+  const isJK = (platform || '').toLowerCase().includes('just kraft');
+  let maxNum = 0;
+
+  for (const exp of expenses) {
+    const parsed = parseExpenseOrderNumber(exp.orderId);
+    if (parsed.number === null) continue;
+
+    if (isJK) {
+      if (parsed.isPlatformInvoice && parsed.number > maxNum) {
+        maxNum = parsed.number;
+      }
+    } else {
+      // General standard orders (exclude JK platform-specific codes)
+      if (!parsed.isPlatformInvoice && parsed.number > maxNum && parsed.number < 1_000_000) {
+        maxNum = parsed.number;
+      }
+    }
+  }
+
+  if (isJK) {
+    const nextNum = maxNum > 0 ? maxNum + 1 : 21827;
+    return `Order Number: JK2627 - ${nextNum}`;
+  }
+
+  const nextNum = maxNum > 0 ? maxNum + 1 : 14903;
+  return `Order #${nextNum}`;
+}
+
+/**
+ * Compares two expenses so they are strictly ordered from recent to old based on order number,
+ * from highest to lowest.
+ *
+ * Rules:
+ * 1. Sequential order numbers (14902 > 14901 > 14507 > 14290 > 8590 > ...) sort descending by number.
+ * 2. Multi-item purchases sharing the same order number stay grouped together.
+ * 3. E-commerce tracking or unnumbered items sort by date descending (recent to old).
+ * 4. Ties break on date descending, then title alphabetically.
+ */
+export function compareExpensesByOrderDesc(a: Expense, b: Expense): number {
+  const parsedA = parseExpenseOrderNumber(a.orderId);
+  const parsedB = parseExpenseOrderNumber(b.orderId);
+
+  // Both have numeric order numbers
+  if (parsedA.number !== null && parsedB.number !== null) {
+    if (parsedA.number !== parsedB.number) {
+      return parsedB.number - parsedA.number; // Highest to lowest
+    }
+  } else if (parsedA.number !== null && parsedB.number === null) {
+    // a has an order number, b is ecommerce or missing
+    const dateA = a.date || '';
+    const dateB = b.date || '';
+    if (dateA && dateB && dateB > dateA) {
+      return 1; // b is newer by calendar date
+    }
+    return -1; // a comes first
+  } else if (parsedA.number === null && parsedB.number !== null) {
+    const dateA = a.date || '';
+    const dateB = b.date || '';
+    if (dateA && dateB && dateA > dateB) {
+      return -1; // a is newer by calendar date
+    }
+    return 1;
+  }
+
+  // Natural collation for alphanumeric differences
+  if (parsedA.raw && parsedB.raw && parsedA.raw !== parsedB.raw) {
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    const comp = collator.compare(parsedB.raw, parsedA.raw);
+    if (comp !== 0) return comp;
+  }
+
+  // Fallback: Date descending (recent to old)
+  const dateComp = (b.date || '').localeCompare(a.date || '');
+  if (dateComp !== 0) return dateComp;
+
+  // Final fallback: Title
+  return (a.title || '').localeCompare(b.title || '');
+}

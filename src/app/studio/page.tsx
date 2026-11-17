@@ -66,6 +66,7 @@ import {
   normalizeNameKey,
 } from '@/lib/oprFormulas';
 import { round2 } from '@/lib/utils';
+import { getNextPurchaseOrderNumber } from '@/lib/purchaseFormulas';
 import {
   luxuryDecoOrder14290Expenses,
   luxuryDecoOrder14507Expenses,
@@ -1148,21 +1149,29 @@ export default function Home() {
       );
     };
 
+    const safeOrderId =
+      (expData.orderId && expData.orderId.trim()) ||
+      getNextPurchaseOrderNumber(expenses, expData.platform);
+    const normalizedExpData = {
+      ...expData,
+      orderId: safeOrderId,
+    };
+
     if (existingId) {
       const baseUpdated = expenses.map((e) =>
-        e.id === existingId ? { ...expData, id: existingId } : e
+        e.id === existingId ? { ...normalizedExpData, id: existingId } : e
       );
       const updated = applyOrderBillSync(baseUpdated, existingId);
       setExpenses(updated);
       persist('vedh_expenses', updated);
       writeVersionFlag('vedh_expenses_version', EXPENSES_DATA_VERSION);
-      addLog('Expense', `Purchase updated: ${expData.title} (₹${expData.amount})`);
-      showToast(`Purchase updated: ${expData.title}`);
+      addLog('Expense', `Purchase updated: ${normalizedExpData.title} (₹${normalizedExpData.amount})`);
+      showToast(`Purchase updated: ${normalizedExpData.title}`);
       return;
     }
 
     const newExpense: Expense = {
-      ...expData,
+      ...normalizedExpData,
       id: `pur-${Date.now()}`,
     };
     const updated = applyOrderBillSync([newExpense, ...expenses], newExpense.id);
@@ -1999,6 +2008,7 @@ export default function Home() {
           paymentModes={getActiveOptions('payment_mode')}
           purchaseStatuses={getActiveOptions('purchase_status')}
           stockItemOptions={inventory.map((i) => i.name)}
+          expenses={expenses}
           onClose={() => {
             setIsNewExpenseOpen(false);
             setEditingExpense(null);

@@ -9,6 +9,7 @@ import {
   computePlatformStats,
   computeCategorySpend,
   exportPurchasesToCsv,
+  compareExpensesByOrderDesc,
 } from '@/lib/purchaseFormulas';
 import {
   resolveEffectiveReceipt,
@@ -22,10 +23,12 @@ import {
   PurchaseMediaUpdateItem,
   clearStoredMediaIfUnused,
 } from './PurchaseMediaModals';
+import ExpenseDetailModal from './ExpenseDetailModal';
 import {
   Plus,
   Search,
   Download,
+  Eye,
   Pencil,
   Trash2,
   Truck,
@@ -71,6 +74,7 @@ export default function ExpensesView({
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [quickPreset, setQuickPreset] = useState<QuickPreset>('all');
+  const [viewingExpense, setViewingExpense] = useState<Expense | null>(null);
   const [previewTarget, setPreviewTarget] = useState<AttachmentPreviewTarget | null>(null);
   const [showFolderModal, setShowFolderModal] = useState(false);
   const quickUploadTargetRef = useRef<{ expenseId: string; kind: 'bill' | 'product' } | null>(null);
@@ -187,7 +191,8 @@ export default function ExpensesView({
 
         const tokens = q.split(/\s+/).filter(Boolean);
         return tokens.length > 1 && tokens.every((tok) => haystack.includes(tok));
-      });
+      })
+      .sort((a, b) => compareExpensesByOrderDesc(a.exp, b.exp));
   }, [expenses, search, platformFilter, categoryFilter, statusFilter, quickPreset]);
 
   const filteredSpend = useMemo(
@@ -714,7 +719,17 @@ export default function ExpensesView({
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-[#FAF5EE] border-b border-[#E8DDCF] text-[11px] uppercase tracking-wider text-[#7A6E6E]">
-                      <th className="py-3 px-4 font-semibold">Date &amp; Order Ref</th>
+                      <th className="py-3 px-4 font-semibold">
+                        <div className="flex items-center gap-1.5">
+                          <span>Date &amp; Order Ref</span>
+                          <span
+                            className="text-[9px] font-semibold normal-case px-1.5 py-0.5 rounded bg-[#FAF0E6] text-[#8F243C] border border-[#E8DDCF]"
+                            title="Always ordered from recent to old based on order number (highest to lowest)"
+                          >
+                            Order # ↓ High to Low
+                          </span>
+                        </div>
+                      </th>
                       <th className="py-3 px-3 font-semibold">Item &amp; Category</th>
                       <th className="py-3 px-3 font-semibold">Platform / Shop</th>
                       <th className="py-3 px-3 text-right font-semibold">Qty &amp; Rate</th>
@@ -750,11 +765,23 @@ export default function ExpensesView({
 
                         {/* Item & Category */}
                         <td className="py-3 px-3 min-w-[200px]">
-                          <div className="font-semibold text-[#2C181B]">{exp.title}</div>
+                          <button
+                            type="button"
+                            onClick={() => setViewingExpense(exp)}
+                            className="font-semibold text-[#2C181B] hover:text-[#541523] hover:underline text-left transition cursor-pointer block"
+                            title="Click to view full purchase details"
+                          >
+                            {exp.title}
+                          </button>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-[#FAF0E6] text-[#8F243C] font-medium">
+                            <button
+                              type="button"
+                              onClick={() => setViewingExpense(exp)}
+                              className="text-[10px] px-2 py-0.5 rounded bg-[#FAF0E6] text-[#8F243C] font-medium hover:bg-[#F2E5D5] transition cursor-pointer"
+                              title="Click to view full purchase details"
+                            >
                               {exp.category}
-                            </span>
+                            </button>
                             {exp.dimensions && (
                               <span className="text-[10px] text-[#7A6E6E]">{exp.dimensions}</span>
                             )}
@@ -915,6 +942,14 @@ export default function ExpensesView({
                         {/* Actions */}
                         <td className="py-3 px-3 text-right whitespace-nowrap">
                           <div className="inline-flex items-center space-x-1">
+                            <button
+                              onClick={() => setViewingExpense(exp)}
+                              className="p-1.5 text-stone-500 hover:text-[#541523] hover:bg-[#F2EBE0] rounded transition"
+                              title="View purchase details"
+                              aria-label={`View details for ${exp.title}`}
+                            >
+                              <Eye size={14} />
+                            </button>
                             <button
                               onClick={() => onEditExpense(exp)}
                               className="p-1.5 text-[#541523] hover:bg-[#F2EBE0] rounded transition"
@@ -1103,6 +1138,43 @@ export default function ExpensesView({
           onClose={() => setPreviewTarget(null)}
           onReplaceFile={handleReplacePreviewFile}
           onClearFile={handleClearPreviewFile}
+        />
+      )}
+
+      {viewingExpense && (
+        <ExpenseDetailModal
+          expense={viewingExpense}
+          allExpenses={expenses}
+          onClose={() => setViewingExpense(null)}
+          onEdit={(exp) => {
+            setViewingExpense(null);
+            onEditExpense(exp);
+          }}
+          onDelete={(id) => {
+            setViewingExpense(null);
+            onDeleteExpense(id);
+          }}
+          onSelectSiblingExpense={(sib) => setViewingExpense(sib)}
+          onPreviewBill={(exp) => {
+            const effectiveBill = resolveEffectiveReceipt(exp, expenses);
+            setPreviewTarget({
+              expense: exp,
+              kind: 'bill',
+              fileName: effectiveBill.fileName || 'Purchase_Bill',
+              url: effectiveBill.url,
+              mediaId: effectiveBill.mediaId,
+              inheritedFromOrder: effectiveBill.inheritedFromOrder,
+            });
+          }}
+          onPreviewImage={(exp) => {
+            setPreviewTarget({
+              expense: exp,
+              kind: 'product',
+              fileName: exp.imageRef || 'Product_Image',
+              url: exp.imageUrl,
+              mediaId: exp.imageMediaId,
+            });
+          }}
         />
       )}
 
