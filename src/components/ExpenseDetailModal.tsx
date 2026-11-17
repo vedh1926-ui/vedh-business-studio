@@ -23,6 +23,7 @@ import {
   Receipt,
   Tag,
   Hash,
+  Copy,
 } from 'lucide-react';
 
 interface ExpenseDetailModalProps {
@@ -31,6 +32,7 @@ interface ExpenseDetailModalProps {
   onClose: () => void;
   onEdit: (expense: Expense) => void;
   onDelete: (id: string) => void;
+  onCopy?: (expense: Expense) => void;
   onSelectSiblingExpense?: (expense: Expense) => void;
   onPreviewBill?: (expense: Expense) => void;
   onPreviewImage?: (expense: Expense) => void;
@@ -42,6 +44,7 @@ export default function ExpenseDetailModal({
   onClose,
   onEdit,
   onDelete,
+  onCopy,
   onSelectSiblingExpense,
   onPreviewBill,
   onPreviewImage,
@@ -119,6 +122,16 @@ export default function ExpenseDetailModal({
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
+            {onCopy && (
+              <button
+                onClick={() => onCopy(expense)}
+                className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg border border-[#D9C9B4] bg-white hover:bg-[#FAF6F0] text-[#541523] text-xs font-semibold shadow-sm transition"
+                title="Copy order details to create a new purchase"
+              >
+                <Copy size={13} />
+                <span>Copy</span>
+              </button>
+            )}
             <button
               onClick={() => onEdit(expense)}
               className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#541523] hover:bg-[#6E1C30] text-white text-xs font-semibold shadow-sm transition"
@@ -540,6 +553,16 @@ export default function ExpenseDetailModal({
           </div>
 
           <div className="flex items-center space-x-2">
+            {onCopy && (
+              <button
+                onClick={() => onCopy(expense)}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg border border-[#D9C9B4] bg-white hover:bg-[#FAF6F0] text-[#541523] text-xs font-semibold transition"
+                title="Copy order details to reorder this item"
+              >
+                <Copy size={14} />
+                <span>Copy Order</span>
+              </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-[#D9C9B4] bg-white hover:bg-[#FAF6F0] text-[#541523] text-xs font-medium transition"

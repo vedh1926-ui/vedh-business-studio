@@ -5,10 +5,11 @@ import { Expense, Supplier } from '@/lib/types';
 import { round2, formatINR } from '@/lib/utils';
 import { diffCalendarDays, getNextPurchaseOrderNumber } from '@/lib/purchaseFormulas';
 import { getPurchaseMedia, savePurchaseMedia } from '@/lib/purchaseMediaStore';
-import { X, Calculator, FileText, Image as ImageIcon, Upload, Trash2, Hash } from 'lucide-react';
+import { X, Calculator, FileText, Image as ImageIcon, Upload, Trash2, Hash, Copy, AlertTriangle } from 'lucide-react';
 
 interface NewExpenseModalProps {
   initialExpense?: Expense | null;
+  isCopy?: boolean;
   prefillSupplier?: Supplier | null;
   platforms?: string[];
   categories?: string[];
@@ -26,6 +27,7 @@ interface NewExpenseModalProps {
 
 export default function NewExpenseModal({
   initialExpense,
+  isCopy = false,
   prefillSupplier = null,
   platforms = [
     'Amazon',
@@ -58,7 +60,7 @@ export default function NewExpenseModal({
   onClose,
   onSave,
 }: NewExpenseModalProps) {
-  const isEditing = Boolean(initialExpense);
+  const isEditing = Boolean(initialExpense) && !isCopy;
   const today = new Date().toISOString().split('T')[0];
 
   const matchedPlatform = prefillSupplier
@@ -79,9 +81,9 @@ export default function NewExpenseModal({
   }, [expenses, platform]);
 
   const [title, setTitle] = useState(initialExpense?.title || '');
-  const [date, setDate] = useState(initialExpense?.date || today);
+  const [date, setDate] = useState(isCopy ? today : initialExpense?.date || today);
   const [orderId, setOrderId] = useState(
-    initialExpense?.orderId ?? (!isEditing ? suggestedOrderId : '')
+    isCopy ? suggestedOrderId : initialExpense?.orderId ?? (!isEditing ? suggestedOrderId : '')
   );
   const [dimensions, setDimensions] = useState(initialExpense?.dimensions || '');
   const [category, setCategory] = useState<string>(
@@ -101,13 +103,15 @@ export default function NewExpenseModal({
     initialExpense?.paymentMode || paymentModes[0] || 'UPI'
   );
   const [purchaseStatus, setPurchaseStatus] = useState<string>(
-    initialExpense?.purchaseStatus || purchaseStatuses[0] || 'Ordered'
+    isCopy
+      ? purchaseStatuses[0] || 'Ordered'
+      : initialExpense?.purchaseStatus || purchaseStatuses[0] || 'Ordered'
   );
   const [expectedDelivery, setExpectedDelivery] = useState(
-    initialExpense?.expectedDelivery || ''
+    isCopy ? '' : initialExpense?.expectedDelivery || ''
   );
   const [actualDelivery, setActualDelivery] = useState(
-    initialExpense?.actualDelivery || ''
+    isCopy ? '' : initialExpense?.actualDelivery || ''
   );
   const [supplierName, setSupplierName] = useState(
     initialExpense?.supplierName || prefillSupplier?.name || ''
@@ -255,9 +259,40 @@ export default function NewExpenseModal({
     return () => URL.revokeObjectURL(url);
   }, [pendingImageFile]);
 
+  const duplicateExpense = useMemo(() => {
+    const normTitle = title.trim().toLowerCase();
+    const normOrder = (orderId.trim() || (!isEditing ? suggestedOrderId : '')).trim().toLowerCase();
+    const normDate = date.trim();
+    const normDims = dimensions.trim().toLowerCase();
+
+    if (!normTitle || !normDate) return null;
+
+    return expenses.find((e) => {
+      // Don't flag itself when editing
+      if (isEditing && initialExpense && e.id === initialExpense.id) return false;
+
+      const matchTitle = (e.title || '').trim().toLowerCase() === normTitle;
+      const matchDate = (e.date || '').trim() === normDate;
+      const matchOrder = (e.orderId || '').trim().toLowerCase() === normOrder;
+      const matchDims = (e.dimensions || '').trim().toLowerCase() === normDims;
+
+      // Exact duplicate combination: item name + order number + date + dimensions/color
+      return matchTitle && matchDate && matchOrder && matchDims;
+    });
+  }, [title, orderId, suggestedOrderId, isEditing, initialExpense, date, dimensions, expenses]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || savingMedia) return;
+
+    if (duplicateExpense) {
+      const proceed = window.confirm(
+        `Duplicate purchase detected!\n\nAn identical record for "${duplicateExpense.title}" with:\n• Order: ${duplicateExpense.orderId || 'Unassigned'}\n• Date: ${duplicateExpense.date}\n• Dimensions/Specs: ${duplicateExpense.dimensions || 'None'}\n\nalready exists in your ledger.\n\nClick Cancel to adjust the color/dimensions, date, or order number, or OK to save anyway.`
+      );
+      if (!proceed) {
+        return;
+      }
+    }
 
     setSavingMedia(true);
     try {
@@ -337,7 +372,7 @@ export default function NewExpenseModal({
           appliedToStock: Boolean(stockItem.trim()) && appliedToStock,
           notes: notes.trim() || undefined,
         },
-        initialExpense?.id,
+        isEditing ? initialExpense?.id : undefined,
         { linkBillToOrder: shouldLinkOrder }
       );
 
@@ -353,10 +388,16 @@ export default function NewExpenseModal({
         <div className="shrink-0 bg-[#FAF5EE] border-b border-[#E8DDCF] px-5 sm:px-6 py-3.5 flex items-center justify-between">
           <div>
             <h3 className="font-serif text-lg font-bold text-[#2C181B]">
-              {isEditing ? 'Edit Purchase / Expense Record' : 'Record Purchase / Workshop Expense'}
+              {isCopy
+                ? 'Copy Purchase / Reorder Item'
+                : isEditing
+                ? 'Edit Purchase / Expense Record'
+                : 'Record Purchase / Workshop Expense'}
             </h3>
             <p className="text-[11px] text-[#7A6E6E]">
-              Auto-calculates Total Cost, Cost/Unit, Days Taken &amp; Platform Summary formulas
+              {isCopy
+                ? 'Pre-filled from existing purchase — adjust date, color/dimensions, or order number'
+                : 'Auto-calculates Total Cost, Cost/Unit, Days Taken & Platform Summary formulas'}
             </p>
           </div>
           <button
@@ -370,8 +411,43 @@ export default function NewExpenseModal({
 
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col text-xs">
           <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4">
-          {/* Row 1: Item & Platform */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Copy Context Banner */}
+            {isCopy && (
+              <div className="bg-[#FAF5EE] border border-[#D9C9B4] rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-center space-x-2 text-[#541523]">
+                  <Copy size={16} className="shrink-0 text-[#8F243C]" />
+                  <span>
+                    <strong>Copying purchase order:</strong> Pre-filled from &ldquo;{initialExpense?.title}&rdquo;. Date defaulted to today and Order No. to next sequential.
+                  </span>
+                </div>
+                {initialExpense?.orderId && initialExpense.orderId !== orderId && (
+                  <button
+                    type="button"
+                    onClick={() => setOrderId(initialExpense.orderId || '')}
+                    className="shrink-0 self-start sm:self-auto px-2.5 py-1 rounded bg-white border border-[#D9C9B4] text-[11px] font-semibold text-[#541523] hover:bg-[#FAF6F0] transition"
+                    title="Keep original order number if ordering another color or variant under the same purchase order"
+                  >
+                    Use Same {initialExpense.orderId}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Duplicate Combination Warning Banner */}
+            {duplicateExpense && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start space-x-2.5 text-xs text-amber-900 animate-fadeIn">
+                <AlertTriangle size={16} className="shrink-0 text-amber-700 mt-0.5" />
+                <div>
+                  <strong className="font-semibold">Duplicate Purchase Detected:</strong> An identical record for &ldquo;{duplicateExpense.title}&rdquo; with Order <code className="font-mono">{duplicateExpense.orderId || 'Unassigned'}</code> on {duplicateExpense.date} ({duplicateExpense.dimensions || 'Standard specs'}) already exists in the ledger.
+                  <div className="text-[11px] text-amber-800 mt-0.5">
+                    If this is a repeat purchase on a different date, please update the date. If this is a different color or size, please update the dimensions/color spec.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Row 1: Item & Platform */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
               <label className="block text-[#423A3A] font-semibold mb-1">
                 Item / Material Name *

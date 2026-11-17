@@ -121,6 +121,7 @@ export default function Home() {
   const [isNewStockOpen, setIsNewStockOpen] = useState(false);
   const [isNewExpenseOpen, setIsNewExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [isCopyingExpense, setIsCopyingExpense] = useState(false);
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [prefillOrderCustomer, setPrefillOrderCustomer] = useState<Customer | null>(null);
@@ -1129,6 +1130,7 @@ export default function Home() {
     existingId?: string,
     options?: { linkBillToOrder?: boolean }
   ) => {
+    setIsCopyingExpense(false);
     const orderKey = options?.linkBillToOrder
       ? normalizeOrderNumberKey(expData.orderId)
       : '';
@@ -1790,10 +1792,17 @@ export default function Home() {
               purchaseStatuses={getActiveOptions('purchase_status')}
               onOpenNewExpense={() => {
                 setEditingExpense(null);
+                setIsCopyingExpense(false);
                 setIsNewExpenseOpen(true);
               }}
               onEditExpense={(expense) => {
                 setEditingExpense(expense);
+                setIsCopyingExpense(false);
+                setIsNewExpenseOpen(true);
+              }}
+              onCopyExpense={(expense) => {
+                setEditingExpense(expense);
+                setIsCopyingExpense(true);
                 setIsNewExpenseOpen(true);
               }}
               onDeleteExpense={handleDeleteExpense}
@@ -2000,8 +2009,9 @@ export default function Home() {
 
       {isNewExpenseOpen && (
         <NewExpenseModal
-          key={editingExpense?.id ?? prefillExpenseSupplier?.id ?? 'new-expense'}
+          key={`${editingExpense?.id ?? prefillExpenseSupplier?.id ?? 'new-expense'}-${isCopyingExpense ? 'copy' : 'std'}`}
           initialExpense={editingExpense}
+          isCopy={isCopyingExpense}
           prefillSupplier={prefillExpenseSupplier}
           platforms={getActiveOptions('platform')}
           categories={getActiveOptions('category')}
@@ -2012,6 +2022,7 @@ export default function Home() {
           onClose={() => {
             setIsNewExpenseOpen(false);
             setEditingExpense(null);
+            setIsCopyingExpense(false);
             setPrefillExpenseSupplier(null);
           }}
           onSave={handleSaveExpense}

@@ -30,6 +30,7 @@ import {
   Download,
   Eye,
   Pencil,
+  Copy,
   Trash2,
   Truck,
   AlertTriangle,
@@ -47,6 +48,7 @@ interface ExpensesViewProps {
   purchaseStatuses?: string[];
   onOpenNewExpense: () => void;
   onEditExpense: (expense: Expense) => void;
+  onCopyExpense?: (expense: Expense) => void;
   onDeleteExpense: (id: string) => void;
   onUpdatePurchaseStatus?: (id: string, purchaseStatus: string) => void;
   onAttachPurchaseMedia?: (updates: PurchaseMediaUpdateItem[], summaryMsg?: string) => void;
@@ -63,6 +65,7 @@ export default function ExpensesView({
   purchaseStatuses = [],
   onOpenNewExpense,
   onEditExpense,
+  onCopyExpense,
   onDeleteExpense,
   onUpdatePurchaseStatus,
   onAttachPurchaseMedia,
@@ -958,6 +961,16 @@ export default function ExpensesView({
                             >
                               <Pencil size={14} />
                             </button>
+                            {onCopyExpense && (
+                              <button
+                                onClick={() => onCopyExpense(exp)}
+                                className="p-1.5 text-stone-500 hover:text-[#541523] hover:bg-[#F2EBE0] rounded transition"
+                                title="Copy order to reorder this item"
+                                aria-label={`Copy order for ${exp.title}`}
+                              >
+                                <Copy size={14} />
+                              </button>
+                            )}
                             <button
                               onClick={() => onDeleteExpense(exp.id)}
                               className="p-1.5 text-stone-400 hover:text-rose-700 hover:bg-rose-50 rounded transition"
@@ -1149,6 +1162,10 @@ export default function ExpensesView({
           onEdit={(exp) => {
             setViewingExpense(null);
             onEditExpense(exp);
+          }}
+          onCopy={(exp) => {
+            setViewingExpense(null);
+            if (onCopyExpense) onCopyExpense(exp);
           }}
           onDelete={(id) => {
             setViewingExpense(null);
