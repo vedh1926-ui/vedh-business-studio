@@ -1366,6 +1366,8 @@ export default function Home() {
         purchaseSource: `Created from purchase: ${
           expense.orderId ? `${expense.orderId} · ` : ''
         }${expense.title}`,
+        imageUrl: expense.imageUrl,
+        imageMediaId: expense.imageMediaId,
         status: (payload.quantityToAdd <= payload.newItemData.reorderLevel ? 'Low' : 'Healthy') as InventoryItem['status'],
       };
 
@@ -1396,6 +1398,8 @@ export default function Home() {
         stock: nextStock,
         avgUnitCost: blendedCost > 0 ? blendedCost : existingItem.avgUnitCost,
         supplier: existingItem.supplier || expense.supplierName || expense.platform,
+        imageUrl: existingItem.imageUrl || expense.imageUrl,
+        imageMediaId: existingItem.imageMediaId || expense.imageMediaId,
         status: (nextStock <= 0 ? 'Critical' : nextStock <= existingItem.reorderLevel ? 'Low' : 'Healthy') as InventoryItem['status'],
       };
 

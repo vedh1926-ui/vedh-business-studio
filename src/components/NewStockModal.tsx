@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { InventoryItem } from '@/lib/types';
-import { X, Layers, Tag } from 'lucide-react';
+import { getPurchaseMedia, savePurchaseMedia } from '@/lib/purchaseMediaStore';
+import { CameraTriggerButton, normalizeCapturedImageFile } from './CameraCaptureModal';
+import { X, Layers, Tag, Image as ImageIcon, Upload, Trash2 } from 'lucide-react';
 
 interface NewStockModalProps {
   initialItem?: InventoryItem | null;
@@ -57,6 +59,12 @@ export default function NewStockModal({
   const [avgUnitCost, setAvgUnitCost] = useState(
     initialItem?.avgUnitCost !== undefined ? String(initialItem.avgUnitCost) : ''
   );
+  const [imageUrl, setImageUrl] = useState<string | undefined>(initialItem?.imageUrl);
+  const [imageMediaId, setImageMediaId] = useState<string | undefined>(initialItem?.imageMediaId);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [imagePreviewSrc, setImagePreviewSrc] = useState<string | null>(initialItem?.imageUrl || null);
+  const [savingMedia, setSavingMedia] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (initialItem) {
@@ -68,39 +76,91 @@ export default function NewStockModal({
       setReorderLevel(String(initialItem.reorderLevel ?? 5));
       setSupplier(initialItem.supplier || '');
       setAvgUnitCost(initialItem.avgUnitCost !== undefined ? String(initialItem.avgUnitCost) : '');
+      setImageUrl(initialItem.imageUrl);
+      setImageMediaId(initialItem.imageMediaId);
+      setPendingImageFile(null);
     }
   }, [initialItem, categories]);
+
+  useEffect(() => {
+    let revokedUrl: string | null = null;
+    let cancelled = false;
+
+    const loadPreview = async () => {
+      if (pendingImageFile) {
+        const obj = URL.createObjectURL(pendingImageFile);
+        revokedUrl = obj;
+        if (!cancelled) setImagePreviewSrc(obj);
+        return;
+      }
+      if (imageUrl) {
+        if (!cancelled) setImagePreviewSrc(imageUrl);
+        return;
+      }
+      if (imageMediaId) {
+        const rec = await getPurchaseMedia(imageMediaId);
+        if (rec && !cancelled) {
+          const obj = URL.createObjectURL(rec.blob);
+          revokedUrl = obj;
+          setImagePreviewSrc(obj);
+          return;
+        }
+      }
+      if (!cancelled) setImagePreviewSrc(null);
+    };
+
+    void loadPreview();
+    return () => {
+      cancelled = true;
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl);
+    };
+  }, [pendingImageFile, imageUrl, imageMediaId]);
 
   // Ensure category from item is in the options list
   const allCategoryOptions = Array.from(
     new Set([category, ...categories].filter(Boolean))
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || savingMedia) return;
 
     const parsedStock = parseFloat(stock);
     const parsedReorder = parseFloat(reorderLevel);
     const parsedCost = avgUnitCost.trim() ? parseFloat(avgUnitCost) : undefined;
 
-    onSave(
-      {
-        name: name.trim(),
-        type,
-        category,
-        stock: Number.isFinite(parsedStock) ? Math.max(0, parsedStock) : 0,
-        unit,
-        reorderLevel: Number.isFinite(parsedReorder) ? Math.max(0, parsedReorder) : 5,
-        supplier: supplier.trim() || undefined,
-        avgUnitCost: Number.isFinite(parsedCost) ? parsedCost : undefined,
-        openingStock: initialItem?.openingStock,
-        purchaseSource: initialItem?.purchaseSource,
-      },
-      initialItem?.id
-    );
+    setSavingMedia(true);
+    try {
+      let nextImageUrl = imageUrl;
+      let nextImageMediaId = imageMediaId;
+      if (pendingImageFile) {
+        const stored = await savePurchaseMedia(pendingImageFile, pendingImageFile.name, 'product');
+        nextImageMediaId = stored.id;
+        nextImageUrl = stored.publicUrl || nextImageUrl;
+      }
 
-    onClose();
+      onSave(
+        {
+          name: name.trim(),
+          type,
+          category,
+          stock: Number.isFinite(parsedStock) ? Math.max(0, parsedStock) : 0,
+          unit,
+          reorderLevel: Number.isFinite(parsedReorder) ? Math.max(0, parsedReorder) : 5,
+          supplier: supplier.trim() || undefined,
+          avgUnitCost: Number.isFinite(parsedCost) ? parsedCost : undefined,
+          openingStock: initialItem?.openingStock,
+          purchaseSource: initialItem?.purchaseSource,
+          imageUrl: nextImageUrl,
+          imageMediaId: nextImageMediaId,
+        },
+        initialItem?.id
+      );
+
+      onClose();
+    } finally {
+      setSavingMedia(false);
+    }
   };
 
   return (
@@ -272,6 +332,82 @@ export default function NewStockModal({
               className="w-full px-3 py-2 border rounded-lg border-[#D9C9B4] focus:outline-none focus:ring-1 focus:ring-[#541523]"
             />
           </div>
+
+          {/* Material Reference Photo (Upload + Camera) */}
+          <div className="border border-[#E8DDCF] bg-[#FCF9F4] rounded-xl p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[#423A3A] font-semibold flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5 text-[#541523]" />
+                <span>Material Photo (Optional)</span>
+              </label>
+              {imagePreviewSrc && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingImageFile(null);
+                    setImageUrl(undefined);
+                    setImageMediaId(undefined);
+                    setImagePreviewSrc(null);
+                  }}
+                  className="text-[11px] text-red-700 hover:underline inline-flex items-center gap-0.5"
+                >
+                  <Trash2 className="w-3 h-3" /> Clear
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                aria-label="Upload Material Photo"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!f) return;
+                  const prepared = await normalizeCapturedImageFile(
+                    f,
+                    name.trim().slice(0, 24) || 'material'
+                  );
+                  setPendingImageFile(prepared);
+                }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#541523] bg-white text-[#541523] text-[11px] font-semibold hover:bg-[#541523]/5"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{imagePreviewSrc ? 'Change Photo' : 'Upload Photo'}</span>
+              </button>
+              <CameraTriggerButton
+                label="Camera"
+                title="Take material photo with camera"
+                modalTitle="Take Material Photo"
+                modalSubtitle="Photograph raw material, box, or supply directly"
+                filePrefix={name.trim().slice(0, 24) || 'material'}
+                onPhotoCaptured={(file) => setPendingImageFile(file)}
+                onFallbackUpload={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#541523] text-white text-[11px] font-semibold hover:bg-[#6E1C30]"
+                iconSize={13}
+              />
+            </div>
+
+            {imagePreviewSrc && (
+              <div className="flex items-center gap-2.5 bg-white border border-[#E8DEC9] rounded-lg p-1.5">
+                <img
+                  src={imagePreviewSrc}
+                  alt={name || 'Material photo preview'}
+                  className="w-10 h-10 object-cover rounded border border-[#D9C9B4] shrink-0"
+                />
+                <span className="text-[11px] text-emerald-700 font-medium truncate">
+                  {pendingImageFile ? `Ready to upload: ${pendingImageFile.name}` : 'Material photo attached'}
+                </span>
+              </div>
+            )}
+          </div>
           </div>
 
           <div className="flex justify-end space-x-3 px-6 py-4 bg-[#FAF5EE]/60 border-t border-[#E8DDCF] shrink-0">
@@ -284,9 +420,10 @@ export default function NewStockModal({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-[#541523] text-white rounded-lg font-semibold hover:bg-[#6E1C30] transition shadow-sm"
+              disabled={savingMedia}
+              className="px-5 py-2 bg-[#541523] text-white rounded-lg font-semibold hover:bg-[#6E1C30] transition shadow-sm disabled:opacity-60"
             >
-              {isEditing ? 'Save Material Changes' : 'Record Stock'}
+              {savingMedia ? 'Uploading...' : isEditing ? 'Save Material Changes' : 'Record Stock'}
             </button>
           </div>
         </form>

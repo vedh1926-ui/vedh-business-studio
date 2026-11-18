@@ -26,6 +26,7 @@ import {
   normalizeOrderNumberKey,
   FolderFileMatch,
 } from '@/lib/purchaseMediaStore';
+import { CameraTriggerButton, normalizeCapturedImageFile } from './CameraCaptureModal';
 
 export interface PurchaseMediaUpdateItem {
   id: string;
@@ -137,16 +138,26 @@ export function PurchaseAttachmentPreviewModal({
   const isPdf = isPdfNameOrMime(target.fileName, mimeType);
   const isImage = !isPdf && isImageNameOrMime(target.fileName, mimeType);
 
+  const handleDirectFile = async (file: File) => {
+    setBusy(true);
+    try {
+      const prepared = file.type.startsWith('image/')
+        ? await normalizeCapturedImageFile(
+            file,
+            target.kind === 'bill' ? 'bill' : target.expense.title.slice(0, 20) || 'product'
+          )
+        : file;
+      await onReplaceFile(target, prepared, applyToOrder);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    setBusy(true);
-    try {
-      await onReplaceFile(target, file, applyToOrder);
-    } finally {
-      setBusy(false);
-    }
+    await handleDirectFile(file);
   };
 
   const handleClear = async () => {
@@ -312,21 +323,35 @@ export function PurchaseAttachmentPreviewModal({
                 Your spreadsheet recorded this filename, but the image/PDF hasn&apos;t been uploaded from your
                 computer yet. Upload it once now or use <strong>Folder &amp; Bill Upload</strong> to match all files in a folder automatically.
               </p>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#541523] text-white text-xs font-semibold hover:bg-[#6E1E30] disabled:opacity-60"
-              >
-                <Upload className="w-3.5 h-3.5" /> Upload {target.fileName} Now
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#541523] text-white text-xs font-semibold hover:bg-[#6E1E30] disabled:opacity-60"
+                >
+                  <Upload className="w-3.5 h-3.5" /> Upload {target.fileName} Now
+                </button>
+                <CameraTriggerButton
+                  disabled={busy}
+                  label="Take Photo"
+                  title={`Take ${target.kind === 'bill' ? 'bill' : 'product'} photo with camera`}
+                  modalTitle={target.kind === 'bill' ? 'Capture Bill / Invoice' : 'Take Product Photo'}
+                  modalSubtitle={`Snap a clear photo for ${target.expense.title}`}
+                  filePrefix={target.kind === 'bill' ? 'bill' : target.expense.title.slice(0, 20) || 'product'}
+                  onPhotoCaptured={handleDirectFile}
+                  onFallbackUpload={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[#541523] bg-white text-[#541523] text-xs font-semibold hover:bg-[#541523]/5 disabled:opacity-60"
+                  iconSize={14}
+                />
+              </div>
             </div>
           )}
         </div>
 
         {/* Footer actions */}
         <div className="px-5 py-3 bg-white border-t border-[#E8DEC9] flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <input
               ref={fileInputRef}
               type="file"
@@ -343,6 +368,18 @@ export function PurchaseAttachmentPreviewModal({
               <Upload className="w-3.5 h-3.5" />
               {resolvedSrc ? 'Replace File' : 'Upload File'}
             </button>
+            <CameraTriggerButton
+              disabled={busy}
+              label="Camera"
+              title={`Take ${target.kind === 'bill' ? 'bill' : 'product'} photo with camera`}
+              modalTitle={target.kind === 'bill' ? 'Capture Bill / Invoice' : 'Take Product Photo'}
+              modalSubtitle={`Attach directly to ${target.expense.title}`}
+              filePrefix={target.kind === 'bill' ? 'bill' : target.expense.title.slice(0, 20) || 'product'}
+              onPhotoCaptured={handleDirectFile}
+              onFallbackUpload={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#541523] text-white font-semibold hover:bg-[#6E1C30] disabled:opacity-50"
+              iconSize={13}
+            />
 
             {target.kind === 'bill' && orderSiblingCount > 1 && target.expense.orderId && (
               <label className="inline-flex items-center gap-1.5 text-[#541523] cursor-pointer select-none">
@@ -842,15 +879,31 @@ export function FolderMediaUploadModal({
                 )}
 
                 <div>
-                  <label className="block text-xs font-bold text-[#541523] mb-1">
-                    2. Choose Bill / Invoice File (Image or PDF)
+                  <label className="block text-xs font-bold text-[#541523] mb-1.5">
+                    2. Choose or Capture Bill / Invoice (Image or PDF)
                   </label>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => setOrderBillFile(e.target.files?.[0] || null)}
-                    className="block w-full text-xs text-[#541523] file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#541523] file:text-white hover:file:bg-[#6E1E30]"
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setOrderBillFile(e.target.files?.[0] || null)}
+                      className="flex-1 min-w-[200px] text-xs text-[#541523] file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#541523] file:text-white hover:file:bg-[#6E1E30]"
+                    />
+                    <CameraTriggerButton
+                      label="Take Bill Photo"
+                      title="Capture order bill photo with camera"
+                      modalTitle="Capture Order Bill"
+                      modalSubtitle={
+                        activeOrderGroup
+                          ? `Photo will link to all ${activeOrderGroup.count} item(s) in ${activeOrderGroup.displayOrderId}`
+                          : 'Capture a photo of your bill'
+                      }
+                      filePrefix={activeOrderGroup ? `bill-${activeOrderGroup.displayOrderId}` : 'order-bill'}
+                      onPhotoCaptured={(file) => setOrderBillFile(file)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#541523] bg-white text-[#541523] text-xs font-semibold hover:bg-[#541523]/5 shrink-0"
+                      iconSize={14}
+                    />
+                  </div>
                   {orderBillFile && (
                     <p className="text-[11px] text-emerald-700 font-medium mt-1.5">
                       Ready: {orderBillFile.name} ({Math.round(orderBillFile.size / 1024)} KB)

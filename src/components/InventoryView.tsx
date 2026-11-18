@@ -114,6 +114,7 @@ export default function InventoryView({
     adjustmentReasons[1] || adjustmentReasons[0] || 'Breakage / wastage'
   );
   const [adjNotes, setAdjNotes] = useState<string>('');
+  const [previewPhoto, setPreviewPhoto] = useState<{ src: string; name: string } | null>(null);
 
   // Comprehensive ledger summary
   const ledgerSummary = useMemo(
@@ -409,8 +410,23 @@ export default function InventoryView({
         key={item.id}
         className="p-4 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4 hover:bg-[#FAF6F0]/60 transition"
       >
-        {/* Left: Item name, Category, Type, Supplier */}
-        <div className="min-w-0 flex-1">
+        {/* Left: Item photo, name, Category, Type, Supplier */}
+        <div className="min-w-0 flex-1 flex items-start gap-3">
+          {item.imageUrl && (
+            <button
+              type="button"
+              onClick={() => setPreviewPhoto({ src: item.imageUrl!, name: item.name })}
+              className="w-10 h-10 rounded-lg border border-[#D9C9B4] overflow-hidden shrink-0 bg-[#FAF5EE] hover:ring-2 hover:ring-[#541523]/40 transition mt-0.5"
+              title={`View photo of ${item.name}`}
+            >
+              <img
+                src={item.imageUrl}
+                alt={item.name}
+                className="w-full h-full object-cover"
+              />
+            </button>
+          )}
+          <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-[#2C181B]">{item.name}</span>
             {item.category && (
@@ -440,6 +456,7 @@ export default function InventoryView({
                 · {item.purchaseSource}
               </span>
             )}
+          </div>
           </div>
         </div>
 
@@ -1192,6 +1209,40 @@ export default function InventoryView({
               </div>
             </div>
           )}
+        </div>
+      )}
+      {previewPhoto && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setPreviewPhoto(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] border border-[#E8DDCF] shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3 bg-[#FAF5EE] border-b border-[#E8DDCF] flex items-center justify-between">
+              <h3 className="font-serif text-base font-bold text-[#2C181B] truncate">
+                {previewPhoto.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewPhoto(null)}
+                className="p-1.5 text-stone-400 hover:text-[#541523] rounded-lg"
+                aria-label="Close preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 bg-[#FAF6F0] flex items-center justify-center overflow-auto">
+              <img
+                src={previewPhoto.src}
+                alt={previewPhoto.name}
+                className="max-h-[72vh] w-auto object-contain rounded-lg border border-[#D9C9B4]"
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -43,6 +43,7 @@ export interface Product {
   reorderLevel: number;
   status: 'Healthy' | 'Low' | 'Out of Stock';
   imageUrl?: string;
+  imageMediaId?: string;
   description?: string;
 }
 
@@ -57,6 +58,8 @@ export interface InventoryItem {
   reorderLevel: number;
   avgUnitCost?: number; // Landed cost per unit (₹), synced from purchases or manually set
   purchaseSource?: string; // Vendor / purchase reference note
+  imageUrl?: string; // Optional reference photo of the raw material / packaging
+  imageMediaId?: string;
   status: 'Healthy' | 'Low' | 'Critical';
   supplier?: string;
   lastAdjustmentReason?: string; // Driven by Adjustment Reason master list

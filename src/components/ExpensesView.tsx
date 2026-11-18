@@ -24,6 +24,10 @@ import {
   clearStoredMediaIfUnused,
 } from './PurchaseMediaModals';
 import ExpenseDetailModal from './ExpenseDetailModal';
+import CameraCaptureModal, {
+  isMobileCameraDevice,
+  normalizeCapturedImageFile,
+} from './CameraCaptureModal';
 import {
   Plus,
   Search,
@@ -41,6 +45,7 @@ import {
   FolderOpen,
   PackagePlus,
   PackageCheck,
+  Camera,
 } from 'lucide-react';
 import { InventoryItem } from '@/lib/types';
 
@@ -89,6 +94,12 @@ export default function ExpensesView({
   const [showFolderModal, setShowFolderModal] = useState(false);
   const quickUploadTargetRef = useRef<{ expenseId: string; kind: 'bill' | 'product' } | null>(null);
   const quickUploadInputRef = useRef<HTMLInputElement>(null);
+  const quickCameraInputRef = useRef<HTMLInputElement>(null);
+  const [inlineCameraTarget, setInlineCameraTarget] = useState<{
+    expenseId: string;
+    kind: 'bill' | 'product';
+    title: string;
+  } | null>(null);
 
   const orderSiblingMap = useMemo(() => {
     const map = new Map<string, Expense[]>();
@@ -235,26 +246,24 @@ export default function ExpensesView({
     setSubTab('ledger');
   };
 
-  const triggerInlineRowUpload = (expenseId: string, kind: 'bill' | 'product') => {
-    quickUploadTargetRef.current = { expenseId, kind };
-    if (quickUploadInputRef.current) {
-      quickUploadInputRef.current.accept = kind === 'bill' ? 'image/*,.pdf' : 'image/*';
-      quickUploadInputRef.current.click();
-    }
-  };
-
-  const handleQuickRowFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    const target = quickUploadTargetRef.current;
-    quickUploadTargetRef.current = null;
-    if (!file || !target || !onAttachPurchaseMedia) return;
-
-    const row = expenses.find((item) => item.id === target.expenseId);
+  const attachFileToExpenseRow = async (
+    expenseId: string,
+    kind: 'bill' | 'product',
+    rawFile: File
+  ) => {
+    if (!onAttachPurchaseMedia) return;
+    const row = expenses.find((item) => item.id === expenseId);
     if (!row) return;
 
-    const stored = await savePurchaseMedia(file, file.name, target.kind);
-    if (target.kind === 'bill') {
+    const file = rawFile.type.startsWith('image/')
+      ? await normalizeCapturedImageFile(
+          rawFile,
+          kind === 'bill' ? 'bill' : row.title.slice(0, 20) || 'product'
+        )
+      : rawFile;
+
+    const stored = await savePurchaseMedia(file, file.name, kind);
+    if (kind === 'bill') {
       const orderKey = normalizeOrderNumberKey(row.orderId);
       const siblings = orderKey ? orderSiblingMap.get(orderKey) || [row] : [row];
       const updates: PurchaseMediaUpdateItem[] = siblings.map((sib) => ({
@@ -282,6 +291,32 @@ export default function ExpensesView({
         `Attached product image "${file.name}" to ${row.title}`
       );
     }
+  };
+
+  const triggerInlineRowUpload = (expenseId: string, kind: 'bill' | 'product') => {
+    quickUploadTargetRef.current = { expenseId, kind };
+    if (quickUploadInputRef.current) {
+      quickUploadInputRef.current.accept = kind === 'bill' ? 'image/*,.pdf' : 'image/*';
+      quickUploadInputRef.current.click();
+    }
+  };
+
+  const triggerInlineRowCamera = (expenseId: string, kind: 'bill' | 'product', title: string) => {
+    if (isMobileCameraDevice()) {
+      quickUploadTargetRef.current = { expenseId, kind };
+      quickCameraInputRef.current?.click();
+    } else {
+      setInlineCameraTarget({ expenseId, kind, title });
+    }
+  };
+
+  const handleQuickRowFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const target = quickUploadTargetRef.current;
+    quickUploadTargetRef.current = null;
+    if (!file || !target) return;
+    await attachFileToExpenseRow(target.expenseId, target.kind, file);
   };
 
   const handleReplacePreviewFile = async (
@@ -408,15 +443,26 @@ export default function ExpensesView({
           </button>
         ) : (
           onAttachPurchaseMedia && (
-            <button
-              type="button"
-              onClick={() => triggerInlineRowUpload(exp.id, 'bill')}
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:border-[#541523] transition"
-              title="Attach bill / invoice for this purchase"
-            >
-              <FileText size={10} />
-              <span>+ Bill</span>
-            </button>
+            <span className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => triggerInlineRowUpload(exp.id, 'bill')}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-l border border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:border-[#541523] transition"
+                title="Attach bill / invoice file for this purchase"
+              >
+                <FileText size={10} />
+                <span>+ Bill</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerInlineRowCamera(exp.id, 'bill', exp.title)}
+                className="inline-flex items-center px-1 py-0.5 rounded-r border border-l-0 border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:bg-[#FAF6F0] hover:border-[#541523] transition"
+                title="Take bill photo with camera"
+                aria-label={`Take bill photo for ${exp.title}`}
+              >
+                <Camera size={10} />
+              </button>
+            </span>
           )
         )}
 
@@ -448,15 +494,26 @@ export default function ExpensesView({
           </button>
         ) : (
           onAttachPurchaseMedia && (
-            <button
-              type="button"
-              onClick={() => triggerInlineRowUpload(exp.id, 'product')}
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:border-[#541523] transition"
-              title="Upload individual product photo"
-            >
-              <ImageIcon size={10} />
-              <span>+ Img</span>
-            </button>
+            <span className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => triggerInlineRowUpload(exp.id, 'product')}
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-l border border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:border-[#541523] transition"
+                title="Upload individual product photo from files"
+              >
+                <ImageIcon size={10} />
+                <span>+ Img</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerInlineRowCamera(exp.id, 'product', exp.title)}
+                className="inline-flex items-center px-1 py-0.5 rounded-r border border-l-0 border-dashed border-[#D9C9B4] text-[#7A6E6E] hover:text-[#541523] hover:bg-[#FAF6F0] hover:border-[#541523] transition"
+                title="Take product photo with camera"
+                aria-label={`Take product photo for ${exp.title}`}
+              >
+                <Camera size={10} />
+              </button>
+            </span>
           )
         )}
       </div>
@@ -471,6 +528,15 @@ export default function ExpensesView({
         onChange={handleQuickRowFileChange}
         className="hidden"
         aria-label="Quick upload bill or product photo for purchase row"
+      />
+      <input
+        ref={quickCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleQuickRowFileChange}
+        className="hidden"
+        aria-label="Quick camera capture for purchase row"
       />
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-[#E8DDCF] rounded-2xl p-6 shadow-sm">
@@ -1190,7 +1256,7 @@ export default function ExpensesView({
 
       {viewingExpense && (
         <ExpenseDetailModal
-          expense={viewingExpense}
+          expense={expenses.find((e) => e.id === viewingExpense.id) || viewingExpense}
           allExpenses={expenses}
           onClose={() => setViewingExpense(null)}
           onEdit={(exp) => {
@@ -1210,6 +1276,7 @@ export default function ExpensesView({
             onDeleteExpense(id);
           }}
           onSelectSiblingExpense={(sib) => setViewingExpense(sib)}
+          onQuickAttachFile={onAttachPurchaseMedia ? attachFileToExpenseRow : undefined}
           onPreviewBill={(exp) => {
             const effectiveBill = resolveEffectiveReceipt(exp, expenses);
             setPreviewTarget({
@@ -1230,6 +1297,33 @@ export default function ExpensesView({
               mediaId: exp.imageMediaId,
             });
           }}
+        />
+      )}
+
+      {inlineCameraTarget && (
+        <CameraCaptureModal
+          title={
+            inlineCameraTarget.kind === 'bill'
+              ? 'Capture Bill / Invoice'
+              : 'Take Product Photo'
+          }
+          subtitle={`Attach directly to ${inlineCameraTarget.title}`}
+          filePrefix={
+            inlineCameraTarget.kind === 'bill'
+              ? 'bill'
+              : inlineCameraTarget.title.slice(0, 20) || 'product'
+          }
+          onCapture={(file) => {
+            const target = inlineCameraTarget;
+            setInlineCameraTarget(null);
+            void attachFileToExpenseRow(target.expenseId, target.kind, file);
+          }}
+          onFallbackUpload={() => {
+            const target = inlineCameraTarget;
+            setInlineCameraTarget(null);
+            triggerInlineRowUpload(target.expenseId, target.kind);
+          }}
+          onClose={() => setInlineCameraTarget(null)}
         />
       )}
 

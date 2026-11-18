@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Expense } from '@/lib/types';
 import { formatINR } from '@/lib/utils';
 import { computePurchaseRowMetrics } from '@/lib/purchaseFormulas';
 import { resolveEffectiveReceipt, normalizeOrderNumberKey } from '@/lib/purchaseMediaStore';
+import { CameraTriggerButton } from './CameraCaptureModal';
 import {
   X,
   Pencil,
@@ -26,6 +27,7 @@ import {
   Copy,
   PackagePlus,
   PackageCheck,
+  Upload,
 } from 'lucide-react';
 
 interface ExpenseDetailModalProps {
@@ -37,6 +39,7 @@ interface ExpenseDetailModalProps {
   onCopy?: (expense: Expense) => void;
   onAddToInventory?: (expense: Expense) => void;
   onSelectSiblingExpense?: (expense: Expense) => void;
+  onQuickAttachFile?: (expenseId: string, kind: 'bill' | 'product', file: File) => Promise<void> | void;
   onPreviewBill?: (expense: Expense) => void;
   onPreviewImage?: (expense: Expense) => void;
 }
@@ -50,9 +53,23 @@ export default function ExpenseDetailModal({
   onCopy,
   onAddToInventory,
   onSelectSiblingExpense,
+  onQuickAttachFile,
   onPreviewBill,
   onPreviewImage,
 }: ExpenseDetailModalProps) {
+  const billUploadInputRef = useRef<HTMLInputElement>(null);
+  const photoUploadInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingKind, setUploadingKind] = useState<'bill' | 'product' | null>(null);
+
+  const handleDirectUpload = async (kind: 'bill' | 'product', file: File) => {
+    if (!onQuickAttachFile) return;
+    setUploadingKind(kind);
+    try {
+      await onQuickAttachFile(expense.id, kind, file);
+    } finally {
+      setUploadingKind(null);
+    }
+  };
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const metrics = useMemo(() => computePurchaseRowMetrics(expense), [expense]);
@@ -445,7 +462,7 @@ export default function ExpenseDetailModal({
                         </span>
                       )}
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
                       {hasViewableBill && onPreviewBill && (
                         <button
                           type="button"
@@ -468,13 +485,65 @@ export default function ExpenseDetailModal({
                           <span>Open / Download</span>
                         </a>
                       )}
+                      {onQuickAttachFile && (
+                        <CameraTriggerButton
+                          disabled={uploadingKind !== null}
+                          label="Camera"
+                          title="Replace bill with camera photo"
+                          modalTitle="Capture Bill / Invoice"
+                          modalSubtitle={`Attach directly to ${expense.title}`}
+                          filePrefix={expense.orderId ? `bill-${expense.orderId}` : 'bill'}
+                          onPhotoCaptured={(file) => void handleDirectUpload('bill', file)}
+                          onFallbackUpload={() => billUploadInputRef.current?.click()}
+                          className="px-2 py-1 rounded border border-[#D9C9B4] bg-white hover:bg-[#F2EBE0] text-[#541523] font-semibold text-[11px] transition inline-flex items-center gap-1"
+                          iconSize={11}
+                        />
+                      )}
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[#8C7D7D] text-[11px] italic">
-                    No bill or receipt file attached. Click Edit to attach an invoice.
+                  <div className="space-y-2">
+                    <div className="text-[#8C7D7D] text-[11px] italic">
+                      No bill or receipt file attached yet.
+                    </div>
+                    {onQuickAttachFile && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={uploadingKind !== null}
+                          onClick={() => billUploadInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded bg-[#541523] hover:bg-[#6E1C30] text-white font-semibold text-[11px] transition inline-flex items-center gap-1 disabled:opacity-50"
+                        >
+                          <Upload size={11} />
+                          <span>{uploadingKind === 'bill' ? 'Uploading...' : 'Upload Bill'}</span>
+                        </button>
+                        <CameraTriggerButton
+                          disabled={uploadingKind !== null}
+                          label="Camera"
+                          title="Capture bill with camera"
+                          modalTitle="Capture Bill / Invoice"
+                          modalSubtitle={`Attach directly to ${expense.title}`}
+                          filePrefix={expense.orderId ? `bill-${expense.orderId}` : 'bill'}
+                          onPhotoCaptured={(file) => void handleDirectUpload('bill', file)}
+                          onFallbackUpload={() => billUploadInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded border border-[#541523] bg-white hover:bg-[#541523]/5 text-[#541523] font-semibold text-[11px] transition inline-flex items-center gap-1 disabled:opacity-50"
+                          iconSize={11}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
+                <input
+                  ref={billUploadInputRef}
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) void handleDirectUpload('bill', f);
+                  }}
+                  className="hidden"
+                />
               </div>
 
               {/* Product Photo */}
@@ -499,7 +568,7 @@ export default function ExpenseDetailModal({
                         />
                       </div>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
                       {hasViewableImg && onPreviewImage && (
                         <button
                           type="button"
@@ -522,13 +591,65 @@ export default function ExpenseDetailModal({
                           <span>Full Size</span>
                         </a>
                       )}
+                      {onQuickAttachFile && (
+                        <CameraTriggerButton
+                          disabled={uploadingKind !== null}
+                          label="Camera"
+                          title="Replace product photo with camera"
+                          modalTitle="Take Product Photo"
+                          modalSubtitle={`Attach directly to ${expense.title}`}
+                          filePrefix={expense.title.slice(0, 20) || 'product'}
+                          onPhotoCaptured={(file) => void handleDirectUpload('product', file)}
+                          onFallbackUpload={() => photoUploadInputRef.current?.click()}
+                          className="px-2 py-1 rounded border border-[#D9C9B4] bg-white hover:bg-[#F2EBE0] text-[#541523] font-semibold text-[11px] transition inline-flex items-center gap-1"
+                          iconSize={11}
+                        />
+                      )}
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[#8C7D7D] text-[11px] italic">
-                    No product image attached. Click Edit to upload photo.
+                  <div className="space-y-2">
+                    <div className="text-[#8C7D7D] text-[11px] italic">
+                      No product image attached yet.
+                    </div>
+                    {onQuickAttachFile && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={uploadingKind !== null}
+                          onClick={() => photoUploadInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded border border-[#541523] bg-white hover:bg-[#541523]/5 text-[#541523] font-semibold text-[11px] transition inline-flex items-center gap-1 disabled:opacity-50"
+                        >
+                          <Upload size={11} />
+                          <span>{uploadingKind === 'product' ? 'Uploading...' : 'Upload Photo'}</span>
+                        </button>
+                        <CameraTriggerButton
+                          disabled={uploadingKind !== null}
+                          label="Camera"
+                          title="Take product photo with camera"
+                          modalTitle="Take Product Photo"
+                          modalSubtitle={`Attach directly to ${expense.title}`}
+                          filePrefix={expense.title.slice(0, 20) || 'product'}
+                          onPhotoCaptured={(file) => void handleDirectUpload('product', file)}
+                          onFallbackUpload={() => photoUploadInputRef.current?.click()}
+                          className="px-2.5 py-1 rounded bg-[#541523] hover:bg-[#6E1C30] text-white font-semibold text-[11px] transition inline-flex items-center gap-1 disabled:opacity-50"
+                          iconSize={11}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
+                <input
+                  ref={photoUploadInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) void handleDirectUpload('product', f);
+                  }}
+                  className="hidden"
+                />
               </div>
             </div>
           </div>

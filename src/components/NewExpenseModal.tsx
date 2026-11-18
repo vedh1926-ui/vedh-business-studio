@@ -5,6 +5,7 @@ import { Expense, Supplier } from '@/lib/types';
 import { round2, formatINR } from '@/lib/utils';
 import { diffCalendarDays, getNextPurchaseOrderNumber } from '@/lib/purchaseFormulas';
 import { getPurchaseMedia, savePurchaseMedia } from '@/lib/purchaseMediaStore';
+import { CameraTriggerButton, normalizeCapturedImageFile } from './CameraCaptureModal';
 import { X, Calculator, FileText, Image as ImageIcon, Upload, Trash2, Hash, Copy, AlertTriangle } from 'lucide-react';
 
 interface NewExpenseModalProps {
@@ -789,17 +790,21 @@ export default function NewExpenseModal({
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <input
                   ref={billInputRef}
                   type="file"
                   accept="image/*,.pdf"
                   aria-label="Upload Bill or Invoice file"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const f = e.target.files?.[0];
+                    e.target.value = '';
                     if (!f) return;
-                    setPendingBillFile(f);
-                    setReceiptFile(f.name);
+                    const prepared = f.type.startsWith('image/')
+                      ? await normalizeCapturedImageFile(f, 'bill')
+                      : f;
+                    setPendingBillFile(prepared);
+                    setReceiptFile(prepared.name);
                   }}
                   className="hidden"
                 />
@@ -811,12 +816,26 @@ export default function NewExpenseModal({
                   <Upload className="w-3.5 h-3.5" />
                   {billPreviewSrc ? 'Change Bill' : 'Upload Bill'}
                 </button>
+                <CameraTriggerButton
+                  label="Camera"
+                  title="Capture Bill / Invoice with camera"
+                  modalTitle="Capture Bill / Invoice"
+                  modalSubtitle="Point your camera at the receipt or paper bill"
+                  filePrefix={orderId.trim() ? `bill-${orderId.trim()}` : 'bill'}
+                  onPhotoCaptured={(file) => {
+                    setPendingBillFile(file);
+                    setReceiptFile(file.name);
+                  }}
+                  onFallbackUpload={() => billInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#541523] bg-white text-[#541523] text-[11px] font-semibold hover:bg-[#541523]/5 shrink-0"
+                  iconSize={13}
+                />
                 <input
                   type="text"
                   placeholder="Bill filename or ref"
                   value={receiptFile}
                   onChange={(e) => setReceiptFile(e.target.value)}
-                  className="flex-1 min-w-0 px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-[11px] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                  className="flex-1 min-w-[110px] px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-[11px] focus:outline-none focus:ring-1 focus:ring-[#541523]"
                 />
               </div>
 
@@ -874,17 +893,19 @@ export default function NewExpenseModal({
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <input
                   ref={productImgInputRef}
                   type="file"
                   accept="image/*"
                   aria-label="Upload Individual Product Image"
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const f = e.target.files?.[0];
+                    e.target.value = '';
                     if (!f) return;
-                    setPendingImageFile(f);
-                    setImageRef(f.name);
+                    const prepared = await normalizeCapturedImageFile(f, title.trim() || 'product');
+                    setPendingImageFile(prepared);
+                    setImageRef(prepared.name);
                   }}
                   className="hidden"
                 />
@@ -896,12 +917,26 @@ export default function NewExpenseModal({
                   <Upload className="w-3.5 h-3.5" />
                   {imagePreviewSrc ? 'Change Photo' : 'Upload Photo'}
                 </button>
+                <CameraTriggerButton
+                  label="Camera"
+                  title="Take product photo with camera"
+                  modalTitle="Take Product Photo"
+                  modalSubtitle="Snap a picture of the purchased product or material"
+                  filePrefix={title.trim() ? `product-${title.trim().slice(0, 24)}` : 'product'}
+                  onPhotoCaptured={(file) => {
+                    setPendingImageFile(file);
+                    setImageRef(file.name);
+                  }}
+                  onFallbackUpload={() => productImgInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#541523] text-white text-[11px] font-semibold hover:bg-[#6E1C30] shrink-0"
+                  iconSize={13}
+                />
                 <input
                   type="text"
                   placeholder="Product photo filename"
                   value={imageRef}
                   onChange={(e) => setImageRef(e.target.value)}
-                  className="flex-1 min-w-0 px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-[11px] focus:outline-none focus:ring-1 focus:ring-[#541523]"
+                  className="flex-1 min-w-[110px] px-2.5 py-1.5 border rounded-lg border-[#D9C9B4] bg-white text-[11px] focus:outline-none focus:ring-1 focus:ring-[#541523]"
                 />
               </div>
 

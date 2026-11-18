@@ -16,6 +16,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  X,
 } from 'lucide-react';
 
 interface ProductsViewProps {
@@ -42,6 +43,7 @@ export default function ProductsView({
   const [searchQuery, setSearchQuery] = useState('');
   const [collectionFilter, setCollectionFilter] = useState<string>('All');
   const [recipeFilter, setRecipeFilter] = useState<'all' | 'has-recipe' | 'no-recipe' | 'open-demand'>('all');
+  const [previewPhoto, setPreviewPhoto] = useState<{ src: string; name: string } | null>(null);
 
   const snapshot = useMemo(
     () => computeRecipeAndProductSnapshot(products, recipes, orders, inventory),
@@ -212,12 +214,32 @@ export default function ProductsView({
                 return (
                   <tr key={product.id} className="hover:bg-[#FAF6F0]/60 transition">
                     <td className="py-3 px-4 font-semibold text-[#2C181B]">
-                      {product.name}
-                      {econ && econ.totalUnitsOrdered > 0 && (
-                        <div className="text-[10px] font-normal text-[#8C7D7D]">
-                          {econ.totalUnitsOrdered} ordered · {formatINR(econ.totalRevenue)} rev
+                      <div className="flex items-center gap-2.5">
+                        {product.imageUrl && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPreviewPhoto({ src: product.imageUrl!, name: product.name })
+                            }
+                            className="w-9 h-9 rounded-lg border border-[#D9C9B4] overflow-hidden shrink-0 bg-[#FAF5EE] hover:ring-2 hover:ring-[#541523]/40 transition"
+                            title={`View photo of ${product.name}`}
+                          >
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </button>
+                        )}
+                        <div>
+                          {product.name}
+                          {econ && econ.totalUnitsOrdered > 0 && (
+                            <div className="text-[10px] font-normal text-[#8C7D7D]">
+                              {econ.totalUnitsOrdered} ordered · {formatINR(econ.totalRevenue)} rev
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </td>
                     <td className="py-3 px-3 text-[#635B5B]">
                       <span className="px-2 py-0.5 rounded bg-[#FAF5EE] border border-[#E8DDCF] text-[10px] font-medium text-[#541523]">
@@ -318,6 +340,40 @@ export default function ProductsView({
           </table>
         </div>
       </div>
+      {previewPhoto && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setPreviewPhoto(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] border border-[#E8DDCF] shadow-2xl overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3 bg-[#FAF5EE] border-b border-[#E8DDCF] flex items-center justify-between">
+              <h3 className="font-serif text-base font-bold text-[#2C181B] truncate">
+                {previewPhoto.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewPhoto(null)}
+                className="p-1.5 text-stone-400 hover:text-[#541523] rounded-lg"
+                aria-label="Close preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 bg-[#FAF6F0] flex items-center justify-center overflow-auto">
+              <img
+                src={previewPhoto.src}
+                alt={previewPhoto.name}
+                className="max-h-[72vh] w-auto object-contain rounded-lg border border-[#D9C9B4]"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
